@@ -1,0 +1,54 @@
+# 相机分辨率
+image_width: 640
+image_height: 480
+
+# 相机在 ROS 中的名字（可随意）
+camera_name: left_camera
+
+# 内参矩阵 K (3×3)，按行展开
+camera_matrix:
+  rows: 3
+  cols: 3
+  data: [fx,  0, cx,
+         0,  fy, cy,
+         0,   0,  1]
+
+# 畸变模型 (常用 plumb_bob / equidistant 等)
+distortion_model: plumb_bob
+
+# 畸变系数 (k1, k2, t1, t2, k3)
+distortion_coefficients:
+  rows: 1
+  cols: 5
+  data: [k1, k2, t1, t2, k3]
+
+# 矫正矩阵 R (立体矫正用；单目一般单位阵)
+rectification_matrix:
+  rows: 3
+  cols: 3
+  data: [1, 0, 0,
+         0, 1, 0,
+         0, 0, 1]
+
+# 投影矩阵 P (3×4)，将畸变矫正后的坐标投影到像素平面
+projection_matrix:
+  rows: 3
+  cols: 4
+  data: [fx,  0, cx, 0,
+         0,  fy, cy, 0,
+         0,   0,  1, 0]
+
+# 说明：
+
+#fx, fy：焦距（以像素为单位）；
+
+# cx, cy：主点坐标（通常为图像中心）；
+
+# k1–k3, t1, t2：经典径向 + 切向畸变系数；
+
+# R：立体校正用，单目一般设置单位矩阵；
+
+# P：如果是单目，最后一列常填 0；若做双目校正，则填左/右相机的投影关系。
+
+# 将该文件用 file:///...yaml 或 package://.../config/left_camera.yaml 
+# 的形式传给 camera_info_manager::CameraInfoManager 即可自动解析并通过 getCameraInfo() 拿到上述数据。

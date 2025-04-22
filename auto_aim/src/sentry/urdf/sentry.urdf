@@ -1,0 +1,542 @@
+<?xml version="1.0" ?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot name="sentry">
+  <link name="base_footprint"/>
+
+  <joint name="base_footprint_to_chassis" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="chassis"/>
+  </joint>
+  <link name="chassis">
+    <inertial>
+      <origin xyz="0.0012585707939905 0.000411266784869985 0.023349347333268" rpy="0 0 0" />
+      <mass value="5.89091803992794" />
+      <inertia ixx="0.0107177244352775" ixy="0.000088" ixz="-0.000000" iyy="0.0102679961995545" iyz="-0.000001" izz="0.0143057751908616" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/chassis.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <box size="0.34 0.34 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="wheel_0">
+    <inertial>
+      <origin xyz="-0.00910259131753816 -0.00861596884477811 0.000000" rpy="0 0 0" />
+      <mass value="0.133285760758113" />
+      <inertia ixx="0.000096" ixy="0.000030" ixz="0.000000" iyy="0.000093" iyz="-0.000000" izz="0.000064" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/wheel_0.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.54 1.54 -0.785" />
+      <geometry>
+        <cylinder radius="0.07" length="0.02"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_wheel_0" type="continuous">
+    <origin xyz="0.20069497312947 0.189965865264681 -0.0380058981945017" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="wheel_0" />
+    <axis xyz="0.7853981633974 0.7853981633974 0" />
+  </joint>
+  <link name="wheel_1">
+    <inertial>
+      <origin xyz="-0.00899324263541734 0.00943395189329133 -0.00011156029063572" rpy="0 0 0" />
+      <mass value="0.133285760758113" />
+      <inertia ixx="0.000093" ixy="-0.000030" ixz="-0.000000" iyy="0.000096" iyz="0.000000" izz="0.000064" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/wheel_1.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.54 1.54 0.785" />
+      <geometry>
+        <cylinder radius="0.07" length="0.02"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_wheel_1" type="continuous">
+    <origin xyz="0.190343139055328 -0.201026333705218 -0.0378943379038649" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="wheel_1" />
+    <axis xyz="0.7853981633974 -0.7853981633974 0" />
+  </joint>
+  <link name="wheel_2">
+    <inertial>
+      <origin xyz="0.00899324263541735 -0.00943395189329144 -0.00011156029063572" rpy="0 0 0" />
+      <mass value="0.133285760758113" />
+      <inertia ixx="0.000093" ixy="-0.000030" ixz="0.000000" iyy="0.000096" iyz="0.000000" izz="0.000064" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/wheel_2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.54 1.54 0.785" />
+      <geometry>
+        <cylinder radius="0.07" length="0.02"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_wheel_2" type="continuous">
+    <origin xyz="-0.190343139055324 0.201026333705212 -0.0378943379038649" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="wheel_2" />
+    <axis xyz="-0.7853981633974 0.7853981633974 0" />
+  </joint>
+  <link name="wheel_3">
+    <inertial>
+      <origin xyz="0.0094339518932914 0.00899324263541754 -0.000111560290635776" rpy="0 0 0" />
+      <mass value="0.133285760758113" />
+      <inertia ixx="0.000096" ixy="0.000030" ixz="0.000000" iyy="0.000093" iyz="0.000000" izz="0.000064" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/wheel_3.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.54 1.54 -0.785" />
+      <geometry>
+        <cylinder radius="0.07" length="0.02"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_wheel_3" type="continuous">
+    <origin xyz="-0.201026333705214 -0.19034313905533 -0.0378943379038648" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="wheel_3" />
+    <axis xyz="0.7853981633974 0.7853981633974 0" />
+  </joint>
+  <link name="gimbal_big">
+    <inertial>
+      <origin xyz="0 0 0.105771304642378" rpy="0 0 0" />
+      <mass value="10.8008279444432" />
+      <inertia ixx="0.0297432699905174" ixy="0.000010" ixz="-0.000052" iyy="0.0216744275852961" iyz="0.000000" izz="0.0339950889722067" />
+    </inertial>
+    <visual>
+      <origin xyz="0.0400000000000013 -0.030000000000003 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/gimbal_big.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.10" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.34 0.34 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_gimbal_big" type="continuous">
+    <origin xyz="0 0 0.181989999999999" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="gimbal_big" />
+    <axis xyz="0 0 -1" />
+  </joint>
+  <link name="front_mid360">
+    <inertial>
+      <origin xyz="-0.000199695516139742 0.00996831886672539 -0.000006" rpy="1.5707963267949 0 0" />
+      <mass value="0.14188619966734" />
+      <inertia ixx="0.000042" ixy="-0.000000" ixz="-0.000000" iyy="0.000069" iyz="0.000000" izz="0.000045" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="1.5707963267949 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/mid360.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="1.5707963267949 0 0" />
+      <geometry>
+        <box size="0.05 0.05 0.05"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="gimbal_big_to_front_mid360" type="fixed">
+    <origin xyz=" 0 0 0.304009999999998" rpy="0 0 0" />
+    <parent link="gimbal_big" />
+    <child link="front_mid360" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="right_small_yaw">
+    <inertial>
+      <origin xyz="-0.0251109141395842 0.00616196957114878 0.0585682959450354" rpy="0 0 0" />
+      <mass value="0.685833794338535" />
+      <inertia ixx="0.000370293049506023" ixy="-0.000002" ixz="0.000025" iyy="0.000513526243996733" iyz="-0.000000" izz="0.000352872344787609" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/right_small_yaw.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.04 0.16"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="gimbal_big_to_right_small_yaw" type="revolute">
+    <origin xyz="0 -0.15615 0.00201" rpy="0 0 0" />
+    <parent link="gimbal_big" />
+    <child link="right_small_yaw" />
+    <axis xyz="0 0 -1" />
+    <limit lower="-1.54" upper="1.54" effort="100" velocity="50" />
+  </joint>
+  <link name="right_pitch">
+    <inertial>
+      <origin xyz="0.0427502312837591 0.000678200751890151 0.0287509507893056" rpy="0 0 0" />
+      <mass value="0.512023773212285" />
+      <inertia ixx="0.000137718677899371" ixy="-0.000002" ixz="0.000023" iyy="0.000323976647075289" iyz="0.000000" izz="0.000378848393710577" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/right_pitch.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.11 0.04 0.04"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_small_yaw_to_right_pitch" type="revolute">
+    <origin xyz="-0.0049994 0.00057897 0.15" rpy="0 0 0" />
+    <parent link="right_small_yaw" />
+    <child link="right_pitch" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-0.79" upper="0.57" effort="100" velocity="50" />
+  </joint>
+  <link name="right_camera_optical_center">
+    <inertial>
+      <origin xyz="-0.00480964849092816 -0.000072 0.000355897384270276" rpy="0 0 0" />
+      <mass value="0.000802752415130092" />
+      <inertia ixx="0.000000" ixy="0.000000" ixz="-0.000000" iyy="0.000000" iyz="-0.000000" izz="0.000000" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/right_camera_optical_center.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.01" length="0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_pitch_to_right_camera_optical_center" type="fixed">
+    <origin xyz="0.10325 0.0015558 0.044502" rpy="0 0 0" />
+    <parent link="right_pitch" />
+    <child link="right_camera_optical_center" />
+    <axis xyz="0 0 1" />
+  </joint>
+  <link name="right_muzzle">
+    <inertial>
+      <origin xyz="0.0538773567788024 0.000762705223456867 -0.00237818761933073" rpy="0 0 0" />
+      <mass value="0.0925748041664168" />
+      <inertia ixx="0.000021" ixy="-0.000001" ixz="0.000004" iyy="0.000100" iyz="0.000000" izz="0.00010300377551449" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/right_muzzle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.08 0.04 0.04"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="right_pitch_to_right_muzzle" type="fixed">
+    <origin xyz="0.078776 0.0011869 -0.0058291" rpy="0 0 0" />
+    <parent link="right_pitch" />
+    <child link="right_muzzle" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="left_small_yaw">
+    <inertial>
+      <origin xyz="-0.0252794865761834 0.00552477909283178 0.0589284904122209" rpy="0 0 0" />
+      <mass value="0.687827681605342" />
+      <inertia ixx="0.000370601713115474" ixy="-0.000006" ixz="0.000025" iyy="0.000513412071599246" iyz="0.000001" izz="0.000352909319263114" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/left_small_yaw.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.05 0.04 0.16"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="gimbal_big_to_left_small_yaw" type="revolute">
+    <origin xyz="0 0.15485 0.00201" rpy="0 0 0" />
+    <parent link="gimbal_big" />
+    <child link="left_small_yaw" />
+    <axis xyz="0 0 -1" />
+    <limit lower="-1.57" upper="1.57" effort="100" velocity="50" />
+  </joint>
+  <link name="left_pitch">
+    <inertial>
+      <origin xyz="0.0425608401531534 0.00238606983123907 0.0284096221276857" rpy="0 0 0" />
+      <mass value="0.494047651270326" />
+      <inertia ixx="0.000137412006534602" ixy="-0.000007" ixz="0.000023" iyy="0.000323424172747528" iyz="0.000001" izz="0.000378784725815462" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/left_pitch.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.17 0.05 0.05 "/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_small_yaw_to_left_pitch" type="revolute">
+    <origin xyz="-0.0049954 0.00044068 0.15" rpy="0 0 0" />
+    <parent link="left_small_yaw" />
+    <child link="left_pitch" />
+    <axis xyz="0 -1 0" />
+    <limit lower="-0.79" upper="0.57" effort="100" velocity="50" />
+  </joint>
+  <link name="left_camera_optical_center">
+    <inertial>
+      <origin xyz="-0.00490543870614932 -0.000209770141038956 0.000363276045676098" rpy="0 0 0" />
+      <mass value="0.000802752415130111" />
+      <inertia ixx="0.000000" ixy="0.000000" ixz="-0.000000" iyy="0.000000" iyz="-0.000000" izz="0.000000" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/left_camera_optical_center.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <cylinder radius="0.01" length="0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_pitch_to_left_camera_optical_center" type="fixed">
+    <origin xyz="0.10327 0.0044161 0.044494" rpy="0 0 0" />
+    <parent link="left_pitch" />
+    <child link="left_camera_optical_center" />
+    <axis xyz="0 0 1" />
+  </joint>
+  <link name="left_muzzle">
+    <inertial>
+      <origin xyz="0.0538356301774414 0.00225302772874664 -0.00237818678014723" rpy="0 0 0" />
+      <mass value="0.0925747996965523" />
+      <inertia ixx="0.000021" ixy="-0.000003" ixz="0.000004" iyy="0.000100" iyz="0.000000" izz="0.000103003774207227" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/left_muzzle.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.08 0.04 0.04"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="left_pitch_left_muzzle" type="fixed">
+    <origin xyz="0.078713 0.003366 -0.0058291" rpy="0 0 0" />
+    <parent link="left_pitch" />
+    <child link="left_muzzle" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="armor_0">
+    <inertial>
+      <origin xyz="-0.0085332449766139 0.000234432503180899 -0.00151643007083821" rpy="0 0 0" />
+      <mass value="0.105960331885836" />
+      <inertia ixx="0.000269218712153954" ixy="-0.000004" ixz="0.000033" iyy="0.000133126843434618" iyz="-0.000001" izz="0.000154671569034129" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/armor_0.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.01 0.05 0.05 "/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_armor_0" type="fixed">
+    <origin xyz="0.25375 -0.0069691 0.035031" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="armor_0" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="armor_1">
+    <inertial>
+      <origin xyz="-0.000234432503180559 -0.00853324497661395 -0.00151643007083767" rpy="0 0 0" />
+      <mass value="0.105960331885837" />
+      <inertia ixx="0.000133126843434619" ixy="0.000004" ixz="0.000001" iyy="0.000269218712153957" iyz="0.000033" izz="0.000154671569034131" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/armor_1.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 1.5707963267949"/>
+      <geometry>
+        <box size="0.01 0.05 0.05 "/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_armor_1" type="fixed">
+    <origin xyz="0.0073809 0.26875 0.015031" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="armor_1" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="armor_2">
+    <inertial>
+      <origin xyz="0.00853324497661415 -0.000234432503180453 -0.00151643007083719" rpy="0 0 0" />
+      <mass value="0.105960331885838" />
+      <inertia ixx="0.00026921871215396" ixy="-0.000004" ixz="-0.000033" iyy="0.000133126843434622" iyz="0.000001" izz="0.000154671569034131" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/armor_2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.01 0.05 0.05 "/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_armor_2" type="fixed">
+    <origin xyz="-0.25375 0.0069691 0.035031" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="armor_2" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="armor_3">
+    <inertial>
+      <origin xyz="0.000234432503180781 0.00853324497661406 -0.00151643007083751" rpy="0 0 0" />
+      <mass value="0.105960331885838" />
+      <inertia ixx="0.000133126843434621" ixy="0.000004" ixz="-0.000001" iyy="0.00026921871215396" iyz="-0.000033" izz="0.000154671569034132" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://sentry/meshes/armor_3.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 1.5707963267949"/>
+      <geometry>
+        <box size="0.01 0.05 0.05 "/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="chassis_to_armor_3" type="fixed">
+    <origin xyz="-0.00738086018190739 -0.268746794953963 0.0150308065151378" rpy="0 0 0" />
+    <parent link="chassis" />
+    <child link="armor_3" />
+    <axis xyz="0 0 0" />
+  </joint>
+</robot>
