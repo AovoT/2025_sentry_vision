@@ -93,14 +93,57 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
       cam_info_sub_.reset();
     });
 
-  img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-    "/image_raw", rclcpp::SensorDataQoS(),
-    std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
+  // img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+  //   "/image_raw", rclcpp::SensorDataQoS(),
+  //   std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
+  left_img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+    "left/image_raw", rclcpp::SensorDataQoS(),
+    [this](std::shared_ptr<const sensor_msgs::msg::Image> msg){
+      this->imageCallback(msg, "left");
+    });
+
+  right_img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
+    "right/image_raw", rclcpp::SensorDataQoS(),
+    [this](std::shared_ptr<const sensor_msgs::msg::Image> msg){
+      this->imageCallback(msg, "right");
+    });
+
 }
 
-void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg)
+void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg, const std::string& direction)
 {
   auto armors = detectArmors(img_msg);
+
+  if( !armors.empty() ) {
+    if( direction == "left" ) {
+      m_left_find_ = true;
+    } else {
+      m_right_find_ = true;
+    }
+  } else {
+    if( direction == "right" ) {
+      m_left_find_ = false;
+    } else {
+      m_right_find_ = false;
+    }
+  }
+
+  //如果都识别到 左边的不处理
+  if( m_left_find_ && m_right_find_  ) {
+    if( direction == "left" ) {
+      return;
+    }
+  } else if( m_left_find_ && !m_right_find_ ) {
+    if( direction == "right" ) {
+      return;
+    }
+  } else if ( !m_left_find_ && m_right_find_ ) {
+    if( direction == "left" ) {
+      return;
+    }
+  } else {
+    return;
+  }
 
   if (pnp_solver_ != nullptr) {
     armors_msg_.header = armor_marker_.header = text_marker_.header = img_msg->header;

@@ -29,6 +29,11 @@
 namespace rm_auto_aim
 {
 
+enum ArmorDirection:uint8_t{
+  LEFT = 0,
+  RIGHT = 1
+};
+
 class ArmorDetectorNode : public rclcpp::Node
 {
 public:
@@ -40,7 +45,7 @@ private:
   
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr color_sub_;
 
-  void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg);
+  void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg, const std::string& direction);
 
   std::unique_ptr<Detector> initDetector();
   std::vector<Armor> detectArmors(const sensor_msgs::msg::Image::ConstSharedPtr & img_msg);
@@ -71,7 +76,9 @@ private:
   std::unique_ptr<PnPSolver> pnp_solver_;
 
   // Image subscrpition
-  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+  // rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr img_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr left_img_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr right_img_sub_;
 
   // Debug information
   bool debug_;
@@ -82,6 +89,10 @@ private:
   image_transport::Publisher binary_img_pub_;
   image_transport::Publisher number_img_pub_;
   image_transport::Publisher result_img_pub_;
+
+  //原子变量
+  std::atomic<bool> m_left_find_ = false;
+  std::atomic<bool> m_right_find_ = false; 
 
 
   std::shared_ptr<rclcpp::AsyncParametersClient> param_client_;
