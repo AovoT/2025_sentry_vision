@@ -1,17 +1,37 @@
-/camera_node:
+/camera_core:
   ros__parameters:
-    _url: package://rm_vision_bringup/config/camera_info_left.yaml
-    exposure_time: 3500
-    gain: 16.0
+    left_camera:
+      name: "left_camera"
+      cam_info_url: "package://rm_vision_bringup/config/left_cam_info.yaml"
+      exposure_time: 4000.0 # ms
+      gain: 5.0
+      invert: false
+      trigger_mode: false
+    right_camera:
+      name: "right_camera"
+      cam_info_url: "package://rm_vision_bringup/config/right_cam_info.yaml"
+      exposure_time: 4000.0 # ms
+      gain: 5.0
+      invert: false
+      trigger_mode: false
 
-/serial_driver:
+/rm_serial_driver:
   ros__parameters:
-    timestamp_offset: 0.006
-    device_name: /dev/ttyACM14
-    baud_rate: 115200
-    flow_control: none
-    parity: none
-    stop_bits: "1"
+    debug: true
+    left:
+      device_name: /dev/ttyACM0
+      baud_rate: 115200
+      hardware_flow: false
+      parity: false
+      stop_bits: 1
+      timeout_ms: 1000
+    right:
+      device_name: /dev/ttyACM1
+      baud_rate: 115200
+      hardware_flow: false
+      parity: false
+      stop_bits: 1
+      timeout_ms: 1000
 
 /armor_detector:
   ros__parameters:
@@ -36,8 +56,8 @@
       sigma2_q_yaw: 5.0
       sigma2_q_r: 80.0
 
-      r_xyz_factor: 4e-4
-      r_yaw: 5e-3
+      r_xyz_factor: 4.0e-4
+      r_yaw: 5.0e-3
 
     tracker:
       max_match_distance: 0.5

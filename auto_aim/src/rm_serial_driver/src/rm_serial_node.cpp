@@ -1,5 +1,7 @@
 // rm_serial_driver.cpp
 #include "rm_serial_driver/rm_serial_node.hpp"
+#include <tf2_ros/buffer_interface.h>
+
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -26,8 +28,6 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions & opts)
 
 RMSerialDriver::~RMSerialDriver()
 {
-  // 通知退出
-  rclcpp::shutdown();
   if (left_thread_.joinable()) left_thread_.join();
   if (right_thread_.joinable()) right_thread_.join();
   left_port_->close();
@@ -67,12 +67,15 @@ void RMSerialDriver::handlePacket(const ReceivePacket & pkt, DoubleEnd end)
       std::make_shared<std_srvs::srv::Trigger::Request>());
   }
   // 发布 TF
+  
   tf2::Quaternion q;
   q.setRPY(pkt.roll, pkt.pitch, pkt.yaw);
   geometry_msgs::msg::TransformStamped t;
   t.header.stamp = now();
-  t.header.frame_id = end == DoubleEnd::LEFT ? "left" : "right";
-  
+  t.header.frame_id = "gimbal_big_link";
+  t.child_frame_id =
+    end == DoubleEnd::LEFT ? "gimbal_left_link" : "gimbal_right_link";
+
   t.transform.rotation = tf2::toMsg(q);
   pubs_.tf_broadcaster.sendTransform(t);
   // 动态参数设置
@@ -84,3 +87,6 @@ void RMSerialDriver::handlePacket(const ReceivePacket & pkt, DoubleEnd end)
 }
 
 }  // namespace rm_serial_driver
+
+#include <rclcpp_components/register_node_macro.hpp>
+RCLCPP_COMPONENTS_REGISTER_NODE(rm_serial_driver::RMSerialDriver)

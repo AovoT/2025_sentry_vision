@@ -1,0 +1,26 @@
+digraph G {
+node [shape=box];
+"odom" [label="odom"];
+"gimbal_big_link" [label="gimbal_big_link"];
+"gimbal_left_link" [label="gimbal_left_link"];
+"left_camera_link" [label="left_camera_link"];
+"left_camera_optical_frame" [label="left_camera_optical_frame"];
+"gimbal_right_link" [label="gimbal_right_link"];
+"right_camera_link" [label="right_camera_link"];
+"right_camera_optical_frame" [label="right_camera_optical_frame"];
+node [shape=ellipse, color=blue, fontcolor=blue];
+"odom" -> "gimbal_joint" [label="xyz: 0 0 0 \nrpy: 0 -0 0"]
+"gimbal_joint" -> "gimbal_big_link"
+"gimbal_big_link" -> "gimbal_big_to_gimbal_left_joint" [label="xyz: 0 0.1 0.05 \nrpy: 0 -0 0"]
+"gimbal_big_to_gimbal_left_joint" -> "gimbal_left_link"
+"gimbal_left_link" -> "left_camera_joint" [label="xyz: 0 0 0.05 \nrpy: 0 -0 0"]
+"left_camera_joint" -> "left_camera_link"
+"left_camera_link" -> "left_camera_optical_joint" [label="xyz: 0 0 0 \nrpy: -1.5708 -0 -1.5708"]
+"left_camera_optical_joint" -> "left_camera_optical_frame"
+"gimbal_big_link" -> "gimbal_big_to_gimbal_right_joint" [label="xyz: 0 -0.1 0.05 \nrpy: 0 -0 0"]
+"gimbal_big_to_gimbal_right_joint" -> "gimbal_right_link"
+"gimbal_right_link" -> "right_camera_joint" [label="xyz: 0 0 0.05 \nrpy: 0 -0 0"]
+"right_camera_joint" -> "right_camera_link"
+"right_camera_link" -> "right_camera_optical_joint" [label="xyz: 0 0 0 \nrpy: -1.5708 -0 -1.5708"]
+"right_camera_optical_joint" -> "right_camera_optical_frame"
+}

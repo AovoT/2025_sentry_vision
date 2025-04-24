@@ -1,7 +1,11 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0"?>
 
 <robot name="rm_gimbal"
-  xmlns:xacro="http://ros.org/wiki/xacro">
+       xmlns:xacro="http://ros.org/wiki/xacro">
+
+<xacro:property name="xyz" value="${xyz}"/>
+<xacro:property name="rpy" value="${rpy}"/>
+
   <link name="odom" />
 
   <link name="gimbal_big_link" />
@@ -21,12 +25,10 @@
     <axis xyz="0 0 1" />
   </joint>
 
-
-
   <link name="left_camera_link" />
 
   <joint name="left_camera_joint" type="fixed">
-    <origin xyz="0 0 0.05" rpy="0 0 0" />
+    <origin xyz="${xyz}" rpy="${rpy}" />
     <parent link="gimbal_left_link" />
     <child link="left_camera_link" />
     <axis xyz="0 0 0" />
@@ -52,7 +54,7 @@
   <link name="right_camera_link" />
 
   <joint name="right_camera_joint" type="fixed">
-    <origin xyz="0 0 0.05" rpy="0 0 0" />
+    <origin xyz="${xyz}" rpy="${rpy}" />
     <parent link="gimbal_right_link" />
     <child link="right_camera_link" />
     <axis xyz="0 0 0" />

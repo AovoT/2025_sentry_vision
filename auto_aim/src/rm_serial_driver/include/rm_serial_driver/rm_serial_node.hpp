@@ -21,6 +21,7 @@ struct Params
 {
   SerialConfig left_config;
   SerialConfig right_config;
+  bool is_debug;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
     param_cb_handle;
 
@@ -66,7 +67,9 @@ struct Subscribers
   explicit Subscribers(rclcpp::Node * node)
   {
     target_sub = node->create_subscription<auto_aim_interfaces::msg::Target>(
-      "target_topic", 10, [](auto) { /* 处理目标消息 */ });
+      "target_topic", 10,
+      [](auto_aim_interfaces::msg::Target::SharedPtr
+           msg) { /* 处理目标消息 */ });
   }
 };
 
@@ -155,5 +158,7 @@ private:
 
   void receiveLoop(DoubleEnd end);
   void handlePacket(const ReceivePacket & pkt, DoubleEnd end);
+  // DEBUG
+  void testSendPacket();
 };
 }  // namespace rm_serial_driver

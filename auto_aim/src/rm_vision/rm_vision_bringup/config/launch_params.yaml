@@ -1,6 +1,4 @@
-camera: hik
-
-odom2camera:
+gimbal_link_to_camera_link:
   xyz: "\"0.07 -0.012 -0.011\""
   rpy: "\"0.0  0.0  0.0\""
 

@@ -24,7 +24,6 @@
 #include "armor_detector/armor.hpp"
 #include "armor_detector/detector_node.hpp"
 
-
 namespace rm_auto_aim
 {
 ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
@@ -39,7 +38,8 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
   // 订阅 Referee 话题
   color_sub_ = this->create_subscription<std_msgs::msg::Bool>(
-    "/detect_color1", 10, std::bind(&ArmorDetectorNode::colorCallback, this, std::placeholders::_1));
+    "/detect_color1", 10,
+    std::bind(&ArmorDetectorNode::colorCallback, this, std::placeholders::_1));
 
   // Armors Publisher
   armors_pub_ = this->create_publisher<auto_aim_interfaces::msg::Armors>(
@@ -98,30 +98,30 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   //   std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
   left_img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     "left/image_raw", rclcpp::SensorDataQoS(),
-    [this](std::shared_ptr<const sensor_msgs::msg::Image> msg){
+    [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, "left");
     });
 
   right_img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
     "right/image_raw", rclcpp::SensorDataQoS(),
-    [this](std::shared_ptr<const sensor_msgs::msg::Image> msg){
+    [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, "right");
     });
-
 }
 
-void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr img_msg, const std::string& direction)
+void ArmorDetectorNode::imageCallback(
+  const sensor_msgs::msg::Image::ConstSharedPtr img_msg, const std::string & direction)
 {
   auto armors = detectArmors(img_msg);
 
-  if( !armors.empty() ) {
-    if( direction == "left" ) {
+  if (!armors.empty()) {
+    if (direction == "left") {
       m_left_find_ = true;
     } else {
       m_right_find_ = true;
     }
   } else {
-    if( direction == "right" ) {
+    if (direction == "right") {
       m_left_find_ = false;
     } else {
       m_right_find_ = false;
@@ -129,16 +129,16 @@ void ArmorDetectorNode::imageCallback(const sensor_msgs::msg::Image::ConstShared
   }
 
   //如果都识别到 左边的不处理
-  if( m_left_find_ && m_right_find_  ) {
-    if( direction == "left" ) {
+  if (m_left_find_ && m_right_find_) {
+    if (direction == "left") {
       return;
     }
-  } else if( m_left_find_ && !m_right_find_ ) {
-    if( direction == "right" ) {
+  } else if (m_left_find_ && !m_right_find_) {
+    if (direction == "right") {
       return;
     }
-  } else if ( !m_left_find_ && m_right_find_ ) {
-    if( direction == "left" ) {
+  } else if (!m_left_find_ && m_right_find_) {
+    if (direction == "left") {
       return;
     }
   } else {
@@ -333,16 +333,16 @@ void ArmorDetectorNode::publishMarkers()
   marker_pub_->publish(marker_array_);
 }
 
-void ArmorDetectorNode::colorCallback(const std_msgs::msg::Bool::SharedPtr msg) {
-
+void ArmorDetectorNode::colorCallback(const std_msgs::msg::Bool::SharedPtr msg)
+{
   if (msg->data) {
     auto results = param_client_->set_parameters({
-      rclcpp::Parameter("detect_color", 1) // 1 = BLUE, 0 = RED
+      rclcpp::Parameter("detect_color", 1)  // 1 = BLUE, 0 = RED
     });
     detector_->detect_color = 0;
   } else {
     auto results = param_client_->set_parameters({
-      rclcpp::Parameter("detect_color", 0) // 1 = BLUE, 0 = RED
+      rclcpp::Parameter("detect_color", 0)  // 1 = BLUE, 0 = RED
     });
     detector_->detect_color = 1;
   }

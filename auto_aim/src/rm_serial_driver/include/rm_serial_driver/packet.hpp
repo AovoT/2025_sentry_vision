@@ -7,7 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
-#include <rm_serial_driver/crc.hpp>
+#include "crc.hpp"
 
 namespace rm_serial_driver
 {
@@ -50,7 +50,7 @@ template<typename T>
 struct has_crc_member<T, std::void_t<decltype(std::declval<T>().crc)>> : std::true_type {};
 
 template <typename T>
-std::vector<uint8_t> getPacketBytesWithoutCRC(const T& packet)
+[[nodiscard]] std::vector<uint8_t> getPacketBytesWithoutCRC(const T& packet)
 {
     if constexpr (has_crc_member<T>::value) {
         // 如果有 crc 字段，计算去除 crc 后的数据

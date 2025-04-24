@@ -1,7 +1,5 @@
-# ros folder
 build/
 install/
 log/
-
-# vscode file
-*.vscode/
+.cache/
+.vscode/

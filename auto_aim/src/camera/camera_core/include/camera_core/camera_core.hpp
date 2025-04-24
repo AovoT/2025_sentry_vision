@@ -55,11 +55,11 @@ struct Publishers
   explicit Publishers(rclcpp::Node * node)
   {
     left_image_pub = node->create_publisher<sensor_msgs::msg::Image>(
-      "left/image_raw", rclcpp::QoS(1).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT));
+      "/left/image_raw", rclcpp::QoS(1).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT));
     right_image_pub = node->create_publisher<sensor_msgs::msg::Image>(
-      "right/image_raw", rclcpp::QoS(1).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT));
-    left_cam_info_pub = node->create_publisher<sensor_msgs::msg::CameraInfo>("left/cam_info", 10);
-    right_cam_info_pub = node->create_publisher<sensor_msgs::msg::CameraInfo>("right/cam_info", 10);
+      "/right/image_raw", rclcpp::QoS(1).reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT));
+    left_cam_info_pub = node->create_publisher<sensor_msgs::msg::CameraInfo>("/left/cam_info", 10);
+    right_cam_info_pub = node->create_publisher<sensor_msgs::msg::CameraInfo>("/right/cam_info", 10);
   }
 };
 

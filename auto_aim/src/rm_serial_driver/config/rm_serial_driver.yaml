@@ -1,5 +1,6 @@
 /rm_serial_driver:
   ros__parameters:
+    debug: true
     left:
       device_name: /dev/ttyACM0
       baud_rate: 115200
