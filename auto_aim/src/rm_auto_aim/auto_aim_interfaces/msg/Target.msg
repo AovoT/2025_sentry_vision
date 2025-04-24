@@ -9,3 +9,4 @@ float64 v_yaw
 float64 radius_1
 float64 radius_2
 float64 dz
+uint8 gimbal_side_flag # 0 - left 1 - right

@@ -26,6 +26,8 @@ struct ReceivePacket
 struct SendPacket
 {
   uint8_t header{0xA5};
+  bool tracking : 1;
+  uint8_t reserved : 7;
   float x;
   float y;
   float z;
@@ -82,7 +84,7 @@ template <typename Packet>
   static_assert(
     sizeof(Packet::crc) == 1 || sizeof(Packet::crc) == 2, "crc is not 1 byte or 2 bytes");
 
-  // 拷贝前半部分数据（不含 CRC）
+  // 拷贝除crc数据（不含 CRC）
   size_t data_size = sizeof(Packet) - sizeof(Packet::crc);
   std::vector<uint8_t> data(data_size + sizeof(Packet::crc));
   std::memcpy(data.data(), &packet, data_size);
