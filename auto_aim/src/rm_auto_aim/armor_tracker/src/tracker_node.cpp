@@ -1,5 +1,6 @@
 // Copyright 2022 Chen Jun
 #include "armor_tracker/tracker_node.hpp"
+#include <tf2/time.h>
 
 // STD
 #include <memory>
@@ -188,7 +189,13 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
   // Tranform armor position from image frame to world coordinate
   for (auto & armor : armors_msg->armors) {
     geometry_msgs::msg::PoseStamped ps;
-    ps.header = armors_msg->header;
+
+    if( armor.gimbal_side_flag == 0 ) {
+      ps.header.frame_id = "left_camera_optical_joint";
+    } else {
+      ps.header.frame_id = "right_camera_optical_joint";
+    }
+
     ps.pose = armor.pose;
     try {
       armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;
