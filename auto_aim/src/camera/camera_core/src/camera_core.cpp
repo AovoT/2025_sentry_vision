@@ -25,6 +25,12 @@ CameraCore::CameraCore(const rclcpp::NodeOptions & options)
   right_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(1), std::bind(&CameraCore::captureAndPubRight, this));
 }
+CameraCore::~CameraCore()
+{
+  left_timer_->cancel();
+  right_timer_->cancel();
+  rclcpp::shutdown();
+}
 
 void CameraCore::captureAndPubLeft()
 {
@@ -50,46 +56,46 @@ rcl_interfaces::msg::SetParametersResult CameraCore::set_param_cb(
   try {
     for (const auto & p : params) {
       const auto & n = p.get_name();
-      if (n == "left_camera.exposure_time") {
+      if (n == "left.exposure_time") {
         int v = p.as_int();
         params_.left_camera_profile.exposure_time = std::chrono::duration<float, std::micro>(v);
         RCLCPP_INFO(get_logger(), "Updated left exposure to %d us", v);
-      } else if (n == "left_camera.gain") {
+      } else if (n == "left.gain") {
         double v = p.as_double();
         params_.left_camera_profile.gain = std::clamp(v, 0.0, 16.0);
         RCLCPP_INFO(get_logger(), "Updated left gain to %.2f", params_.left_camera_profile.gain);
-      } else if (n == "left_camera.invert") {
+      } else if (n == "left.invert") {
         params_.left_camera_profile.invert_image = p.as_bool();
         RCLCPP_INFO(
           get_logger(), "Left invert set to %s",
           params_.left_camera_profile.invert_image ? "true" : "false");
-      } else if (n == "left_camera.trigger_mode") {
+      } else if (n == "left.trigger_mode") {
         params_.left_camera_profile.trigger_mode = p.as_bool();
         RCLCPP_INFO(
           get_logger(), "Left trigger set to %s",
           params_.left_camera_profile.trigger_mode ? "true" : "false");
-      } else if (n == "left_camera.cam_info_url") {
+      } else if (n == "left.cam_info_url") {
         params_.right_cam_info_url = p.as_string();
         RCLCPP_INFO(get_logger(), "Left cam info url set to %s", p.as_string().c_str());
-      } else if (n == "right_camera.exposure_time") {
+      } else if (n == "right.exposure_time") {
         int v = p.as_int();
         params_.right_camera_profile.exposure_time = std::chrono::duration<float, std::micro>(v);
         RCLCPP_INFO(get_logger(), "Updated right exposure to %d us", v);
-      } else if (n == "right_camera.gain") {
+      } else if (n == "right.gain") {
         double v = p.as_double();
         params_.right_camera_profile.gain = std::clamp(v, 0.0, 16.0);
         RCLCPP_INFO(get_logger(), "Updated right gain to %.2f", params_.right_camera_profile.gain);
-      } else if (n == "right_camera.invert") {
+      } else if (n == "right.invert") {
         params_.right_camera_profile.invert_image = p.as_bool();
         RCLCPP_INFO(
           get_logger(), "Right invert set to %s",
           params_.right_camera_profile.invert_image ? "true" : "false");
-      } else if (n == "right_camera.trigger_mode") {
+      } else if (n == "right.trigger_mode") {
         params_.right_camera_profile.trigger_mode = p.as_bool();
         RCLCPP_INFO(
           get_logger(), "Right trigger set to %s",
           params_.right_camera_profile.trigger_mode ? "true" : "false");
-      } else if (n == "right_camera.cam_info_url") {
+      } else if (n == "right.cam_info_url") {
         params_.right_cam_info_url = p.as_string();
         RCLCPP_INFO(get_logger(), "Right cam info url set to %s", p.as_string().c_str());
       }

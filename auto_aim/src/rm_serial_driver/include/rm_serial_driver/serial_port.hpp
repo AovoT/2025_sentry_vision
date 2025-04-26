@@ -1,47 +1,120 @@
+// serial_port.hpp
 #pragma once
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
-#include <cstdint>
-#include <cstring>
+#include <cerrno>
+#include <stdexcept>
 #include <string>
+
+#include <cstdint>
 
 namespace rm_serial_driver
 {
 
 struct SerialConfig
 {
-  std::string device;         // 设备路径
-  int baudrate{115200};       // 波特率
-  int data_bits{8};           // 数据位 (5-8)
-  int stop_bits{1};           // 停止位 (1-2)
-  bool parity{false};         // 是否使用奇偶校验
-  bool hardware_flow{false};  // 是否使用硬件流控
-  int timeout_ms{1000};       // 读取超时时间(毫秒)
+  std::string device_name;
+  int baudrate;
+  bool hardware_flow;
+  bool parity;
+  int stop_bits;
+  int timeout_ms;
 };
 
 class SerialPort
 {
 public:
-  SerialPort(const SerialConfig & config);
-  ~SerialPort();
+  explicit SerialPort(const SerialConfig & cfg) : cfg_(cfg), fd_(-1) {}
 
-  bool open();
-  void close();
-  bool configure(const SerialConfig & config);
-  ssize_t write(const uint8_t * data, size_t size);
-  ssize_t read(uint8_t * buffer, size_t size);
-  bool isOpen() const;
-  const SerialConfig & getConfig() const { return config_; }
+  ~SerialPort()
+  {
+    if (fd_ >= 0) ::close(fd_);
+  }
+
+  void open()
+  {
+    // 直接尝试打开设备节点
+    fd_ = ::open(cfg_.device_name.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (fd_ < 0) {
+      throw std::runtime_error(
+        "SerialPort: cannot open " + cfg_.device_name + ": "
+      );
+    }
+    // 确认打开后确实是字符设备
+    struct stat st;
+    if (fstat(fd_, &st) != 0 || !S_ISCHR(st.st_mode)) {
+      ::close(fd_);
+      fd_ = -1;
+      throw std::runtime_error(
+        "SerialPort: target is not a character device: " + cfg_.device_name);
+    }
+    configurePort();
+  }
+
+  ssize_t read(uint8_t * buf, size_t size) { return ::read(fd_, buf, size); }
+
+  ssize_t write(const uint8_t * data, size_t size)
+  {
+    return ::write(fd_, data, size);
+  }
+
+  // 将整数波特率转换为 termios speed_t
+  static speed_t baudToSpeed(int baud)
+  {
+    switch (baud) {
+      case 9600:
+        return B9600;
+      case 19200:
+        return B19200;
+      case 38400:
+        return B38400;
+      case 57600:
+        return B57600;
+      case 115200:
+        return B115200;
+      case 230400:
+        return B230400;
+      default:
+        throw std::invalid_argument(
+          "Unsupported baud rate: " + std::to_string(baud));
+    }
+  }
 
 private:
-  int fd_;
-  SerialConfig config_;
+  void configurePort()
+  {
+    struct termios tio;
+    if (tcgetattr(fd_, &tio) != 0) {
+      throw std::runtime_error("SerialPort: tcgetattr failed");
+    }
+    cfsetispeed(&tio, baudToSpeed(cfg_.baudrate));
+    cfsetospeed(&tio, baudToSpeed(cfg_.baudrate));
 
-  bool configurePort();
-  speed_t baudToSpeed(int baudrate);
-  int dataBitsToFlag(int data_bits);
+    tio.c_cflag |= CLOCAL | CREAD;
+    tio.c_cflag &= ~CSIZE;
+    tio.c_cflag |= (cfg_.parity ? PARENB : 0);
+    tio.c_cflag |= (cfg_.stop_bits == 2 ? CSTOPB : 0);
+    tio.c_cflag |= (cfg_.hardware_flow ? CRTSCTS : 0);
+    tio.c_cflag |= CS8;
+
+    tio.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+    tio.c_iflag &= ~(IXON | IXOFF | IXANY);
+    tio.c_oflag &= ~OPOST;
+
+    // 设置超时
+    tio.c_cc[VMIN] = 0;
+    tio.c_cc[VTIME] = cfg_.timeout_ms / 100;
+
+    if (tcsetattr(fd_, TCSANOW, &tio) != 0) {
+      throw std::runtime_error("SerialPort: tcsetattr failed");
+    }
+  }
+
+  SerialConfig cfg_;
+  int fd_;
 };
 
 }  // namespace rm_serial_driver

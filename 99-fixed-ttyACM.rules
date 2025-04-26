@@ -1,6 +1,0 @@
-#left
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", SYMLINK+="ttyACM14", MODE="0666"
-#right
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0479", ATTRS{idProduct}=="5740", SYMLINK+="ttyACM15", MODE="0666" 
-
-

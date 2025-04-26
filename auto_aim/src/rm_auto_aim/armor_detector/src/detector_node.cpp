@@ -97,54 +97,48 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   //   "/image_raw", rclcpp::SensorDataQoS(),
   //   std::bind(&ArmorDetectorNode::imageCallback, this, std::placeholders::_1));
   left_img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-    "left/image_raw", rclcpp::SensorDataQoS(),
+    "/left/image_raw", rclcpp::SensorDataQoS(),
     [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, "left");
     });
 
   right_img_sub_ = this->create_subscription<sensor_msgs::msg::Image>(
-    "right/image_raw", rclcpp::SensorDataQoS(),
+    "/right/image_raw", rclcpp::SensorDataQoS(),
     [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, "right");
     });
 }
 
 void ArmorDetectorNode::imageCallback(
-  const sensor_msgs::msg::Image::ConstSharedPtr img_msg, const std::string & direction)
+  const sensor_msgs::msg::Image::ConstSharedPtr img_msg, const std::string & gimbal_side)
 {
   auto armors = detectArmors(img_msg);
 
-  if (!armors.empty()) {
-    if (direction == "left") {
-      m_left_find_ = true;
-    } else {
-      m_right_find_ = true;
-    }
+  // 1) 更新左右标志
+  bool found = !armors.empty();
+  bool left = (gimbal_side == "left");
+
+  if (left) {
+    m_left_find_ = found;
+    if (!found) m_right_find_ = false;  // 失配时清除另一侧
   } else {
-    if (direction == "right") {
-      m_left_find_ = false;
-    } else {
-      m_right_find_ = false;
-    }
+    m_right_find_ = found;
+    if (!found) m_left_find_ = false;
   }
 
-  //如果都识别到 左边的不处理
-  if (m_left_find_ && m_right_find_) {
-    if (direction == "left") {
-      return;
-    }
-  } else if (m_left_find_ && !m_right_find_) {
-    if (direction == "right") {
-      return;
-    }
-  } else if (!m_left_find_ && m_right_find_) {
-    if (direction == "left") {
-      return;
-    }
-  } else {
+  // 2) 决定是否跳过
+  //    - 都没识别到：跳过
+  //    - 都识别到 && 当前是“左”： 跳过
+  //    - 只有一侧识别到 && 识别侧不等于当前侧：跳过
+  if (!m_left_find_ && !m_right_find_) {
     return;
   }
-
+  if (m_left_find_ && m_right_find_) {
+    if (left) return;
+  } else if (m_left_find_ != left) {
+    return;
+  }
+  
   if (pnp_solver_ != nullptr) {
     armors_msg_.header = armor_marker_.header = text_marker_.header = img_msg->header;
     armors_msg_.armors.clear();

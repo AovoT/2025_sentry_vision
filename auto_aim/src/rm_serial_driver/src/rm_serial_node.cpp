@@ -1,15 +1,19 @@
 #include "rm_serial_driver/rm_serial_node.hpp"
 
 #include <tf2_ros/buffer_interface.h>
+#include <tf2_ros/transform_listener.h>
 
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+
+#include "rm_serial_driver/packet.hpp"
+
 
 namespace rm_serial_driver
 {
 
 // Params implementation
-template<typename T>
+template <typename T>
 static T declare(
   rclcpp::Node * node, const std::string & name, const T & default_val)
 {
@@ -18,7 +22,7 @@ static T declare(
 
 Params::Params(rclcpp::Node * node)
 {
-  left_config.device =
+  left_config.device_name =
     declare(node, "left.device_name", std::string("/dev/ttyACM0"));
   left_config.baudrate = declare(node, "left.baud_rate", 115200);
   left_config.hardware_flow = declare(node, "left.hardware_flow", false);
@@ -26,7 +30,7 @@ Params::Params(rclcpp::Node * node)
   left_config.stop_bits = declare(node, "left.stop_bits", 1);
   left_config.timeout_ms = declare(node, "left.timeout_ms", 1000);
 
-  right_config.device =
+  right_config.device_name =
     declare(node, "right.device_name", std::string("/dev/ttyACM1"));
   right_config.baudrate = declare(node, "right.baud_rate", 115200);
   right_config.hardware_flow = declare(node, "right.hardware_flow", false);
@@ -43,6 +47,8 @@ Publishers::Publishers(rclcpp::Node * node) : tf_broadcaster(node) {}
 // Subscribers implementation
 Subscribers::Subscribers(rclcpp::Node * node, RMSerialDriver * parent)
 {
+  tf_buffer = std::make_shared<tf2_ros::Buffer>(node->get_clock());
+  tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
   target_sub = node->create_subscription<auto_aim_interfaces::msg::Target>(
     "target_topic", 10,
     std::bind(&RMSerialDriver::handleMsg, parent, std::placeholders::_1));
@@ -106,9 +112,18 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions & opts)
   params_(this),
   pubs_(this),
   subs_(this, this),
-  clis_(this)
+  clis_(this),
+  left_serial_parser_(get_logger()),
+  right_serial_parser_(get_logger())
 {
-  CRC::init_table();
+  left_serial_parser_.registerHandler<ReceiveImuData>(
+    0x01, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::LEFT); });
+  left_serial_parser_.registerHandler<ReceiveTargetInfoData>(
+    0x09, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::LEFT); });
+  right_serial_parser_.registerHandler<ReceiveImuData>(
+    0x01, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::RIGHT); });
+  right_serial_parser_.registerHandler<ReceiveTargetInfoData>(
+    0x09, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::RIGHT); });
   left_port_ = std::make_shared<SerialPort>(params_.left_config);
   right_port_ = std::make_shared<SerialPort>(params_.right_config);
   left_port_->open();
@@ -119,43 +134,44 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions & opts)
 
 RMSerialDriver::~RMSerialDriver()
 {
+  rclcpp::shutdown();
   if (left_thread_.joinable()) left_thread_.join();
   if (right_thread_.joinable()) right_thread_.join();
-  left_port_->close();
-  right_port_->close();
 }
 
 void RMSerialDriver::receiveLoop(DoubleEnd end)
 {
-  auto port = (end == DoubleEnd::LEFT ? left_port_ : right_port_);
-  auto buf = (end == DoubleEnd::LEFT ? left_buf_ : right_buf_);
+  auto & port = (end == DoubleEnd::LEFT ? left_port_ : right_port_);
+  auto & parser =
+    (end == DoubleEnd::LEFT ? left_serial_parser_ : right_serial_parser_);
+  uint8_t * buf = (end == DoubleEnd::LEFT ? left_buf_ : right_buf_);
+  std::string end_str = end==DoubleEnd::LEFT ? "left" : "right";
+
   while (rclcpp::ok()) {
-    auto n = port->read(buf, BUFFER_SIZE);
+    ssize_t n = port->read(buf, BUFFER_SIZE);
     if (n > 0) {
-      handlePacket(unpack(buf, n), end);
-    } else if (n == 0) {
+      // 真正读到数据，喂给解析器
+      parser.feed(buf, static_cast<size_t>(n));
+    } else if (n == 0 || (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     } else {
+      // 真正的读错误，打印并退出循环
       RCLCPP_ERROR(
-        get_logger(), "%s port read error",
-        (end == DoubleEnd::LEFT ? "Left" : "Right"));
+        get_logger(), "%s port read error (%s)",
+        (end == DoubleEnd::LEFT ? "Left" : "Right"), std::strerror(errno));
       break;
     }
   }
 }
 
-void RMSerialDriver::handlePacket(const ReceivePacket & pkt, DoubleEnd end)
+void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
 {
-  if (CRC::crc8(getPacketBytesWithoutCRC(pkt)) != pkt.crc) {
-    RCLCPP_ERROR(get_logger(), "CRC mismatch");
-    return;
-  }
-  if (pkt.reset_tracker && clis_.reset_tracker_srv->service_is_ready()) {
-    clis_.reset_tracker_srv->async_send_request(
-      std::make_shared<std_srvs::srv::Trigger::Request>());
-  }
   tf2::Quaternion q;
-  q.setRPY(pkt.roll, pkt.pitch, pkt.yaw);
+  q.setRPY(pkt.data.roll, pkt.data.pitch, pkt.data.yaw);
+  q.normalize();
+  if (params_.is_debug) {
+    std::cout << "roll:" << pkt.data.roll << " pitch: " << pkt.data.pitch << " yaw: " << pkt.data.yaw << std::endl;
+  }
   geometry_msgs::msg::TransformStamped t;
   t.header.stamp = now();
   t.header.frame_id = "gimbal_big_link";
@@ -163,37 +179,72 @@ void RMSerialDriver::handlePacket(const ReceivePacket & pkt, DoubleEnd end)
     (end == DoubleEnd::LEFT ? "gimbal_left_link" : "gimbal_right_link");
   t.transform.rotation = tf2::toMsg(q);
   pubs_.tf_broadcaster.sendTransform(t);
-  if (prev_color_ != pkt.detect_color) {
-    clis_.setParam(
-      rclcpp::Parameter("detect_color", static_cast<bool>(pkt.detect_color)));
-    prev_color_ = pkt.detect_color;
+}
+
+void RMSerialDriver::handlePacket(
+  const ReceiveTargetInfoData & pkt, DoubleEnd end)
+{
+  if (pkt.data.reset_tracker && clis_.reset_tracker_srv->service_is_ready()) {
+    clis_.reset_tracker_srv->async_send_request(
+      std::make_shared<std_srvs::srv::Trigger::Request>());
+  }
+  if (prev_color_ != pkt.data.detect_color) {
+    clis_.setParam(rclcpp::Parameter(
+      "detect_color", static_cast<bool>(pkt.data.detect_color)));
+    prev_color_ = pkt.data.detect_color;
   }
 }
 
 void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
 {
-  const static std::map<std::string,
-    uint8_t> ID_MAP = {{"", 0},  {"outpost", 0}, {"1", 1},
-                      {"2", 2}, {"3", 3},       {"4", 4},
-                      {"5", 5}, {"guard", 6},   {"base", 7}};
-  SendPacket packet{};
-  packet.tracking = msg->tracking;
-  packet.x = msg->position.x;
-  packet.y = msg->position.y;
-  packet.z = msg->position.z;
-  packet.yaw = msg->yaw;
-  packet.vx = msg->velocity.x;
-  packet.vy = msg->velocity.y;
-  packet.vz = msg->velocity.z;
-  packet.v_yaw = msg->v_yaw;
-  packet.r1 = msg->radius_1;
-  packet.r2 = msg->radius_2;
-  packet.dz = msg->dz;
-  auto data = pack(packet);
-}
+  // 1. 填 packet（先用原始 odom 坐标）
+  SendVisionData pkt{};
+  auto & pkt_data = pkt.data;
+  pkt_data.tracking = msg->tracking;
+  pkt_data.x = msg->position.x;
+  pkt_data.y = msg->position.y;
+  pkt_data.z = msg->position.z;
+  pkt_data.yaw = msg->yaw;
+  pkt_data.vx = msg->velocity.x;
+  pkt_data.vy = msg->velocity.y;
+  pkt_data.vz = msg->velocity.z;
+  pkt_data.v_yaw = msg->v_yaw;
+  pkt_data.r1 = msg->radius_1;
+  pkt_data.r2 = msg->radius_2;
+  pkt_data.dz = msg->dz;
 
-void RMSerialDriver::testSendPacket()
-{ /* ... */
+  // 2. 构造待变换的 PointStamped
+  geometry_msgs::msg::PointStamped pt_in;
+  pt_in.header.stamp = now();
+  pt_in.header.frame_id = "odom";
+  pt_in.point.x = pkt_data.x;
+  pt_in.point.y = pkt_data.y;
+  pt_in.point.z = pkt_data.z;
+
+  // 3. 根据 side_flag 做 TF 变换
+  if (msg->gimbal_side_flag == 0 || msg->gimbal_side_flag == 1) {
+    const std::string target_frame =
+      (msg->gimbal_side_flag == 0) ? "gimbal_left_link" : "gimbal_right_link";
+    try {
+      auto pt_out = subs_.tf_buffer->transform(pt_in, target_frame);
+      pkt_data.x = pt_out.point.x;
+      pkt_data.y = pt_out.point.y;
+      pkt_data.z = pt_out.point.z;
+    } catch (const tf2::TransformException & e) {
+      RCLCPP_WARN(get_logger(), "TF transform failed: %s", e.what());
+    }
+  } else {
+    RCLCPP_WARN(
+      get_logger(), "unknown gimbal_side_flag: %d", msg->gimbal_side_flag);
+  }
+
+  // 4. 打包并发送到对应串口
+  auto data = pack(pkt);
+  size_t len = data.size();
+  auto port = (msg->gimbal_side_flag == 0 ? left_port_ : right_port_);
+  if (static_cast<ssize_t>(port->write(data.data(), len)) < 0) {
+    RCLCPP_WARN(get_logger(), "数据发送失败");
+  }
 }
 
 }  // namespace rm_serial_driver

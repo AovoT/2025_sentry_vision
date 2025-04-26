@@ -8,7 +8,7 @@ def generate_launch_description():
   config_file = os.path.join(
     get_package_share_directory('rm_serial_driver'),
     'config',
-    'serial_driver.yaml'
+    'rm_serial_driver.yaml'
   )
 
   # 定义节点信息

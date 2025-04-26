@@ -1,13 +1,13 @@
 /camera_core:
   ros__parameters:
-    left_camera:
+    left:
       name: "left_camera"
       cam_info_url: "package://camera_core/config/left_cam_info.yaml"
       exposure_time: 4000.0 # ms
       gain: 5.0
       invert: false
       trigger_mode: false
-    right_camera:
+    right:
       name: "right_camera"
       cam_info_url: "package://camera_core/config/right_cam_info.yaml"
       exposure_time: 4000.0 # ms

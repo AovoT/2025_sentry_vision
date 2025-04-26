@@ -24,23 +24,23 @@ struct Params
   explicit Params(rclcpp::Node * node)
   {
     // Left camera params
-    left_camera_name = node->declare_parameter("left_camera.name", "left_camera");
-    left_cam_info_url = node->declare_parameter("left_camera.cam_info_url", "package://camera_core/config/left_cam_info.yaml");
-    float exp_us = node->declare_parameter("left_camera.exposure_time", 5000.0f);
+    left_camera_name = node->declare_parameter("left.name", "left_camera");
+    left_cam_info_url = node->declare_parameter("left.cam_info_url", "package://camera_core/config/left_cam_info.yaml");
+    float exp_us = node->declare_parameter("left.exposure_time", 5000.0f);
     left_camera_profile.exposure_time = std::chrono::duration<float, std::micro>(exp_us);
-    left_camera_profile.gain = node->declare_parameter("left_camera.gain", 8.0f);
-    left_camera_profile.invert_image = node->declare_parameter("left_camera.invert", false);
-    left_camera_profile.trigger_mode = node->declare_parameter("left_camera.trigger_mode", false);
+    left_camera_profile.gain = node->declare_parameter("left.gain", 8.0f);
+    left_camera_profile.invert_image = node->declare_parameter("left.invert", false);
+    left_camera_profile.trigger_mode = node->declare_parameter("left.trigger_mode", false);
     left_camera_profile.gain = std::clamp(left_camera_profile.gain, 0.0f, 16.0f);
 
     // Right camera params
-    right_camera_name = node->declare_parameter("right_camera.name", "right_camera");
-    right_cam_info_url = node->declare_parameter("right_camera.cam_info_url", "package://camera_core/config/right_cam_info.yaml");
-    exp_us = node->declare_parameter("right_camera.exposure_time", 5000.0f);
+    right_camera_name = node->declare_parameter("right.name", "right_camera");
+    right_cam_info_url = node->declare_parameter("right.cam_info_url", "package://camera_core/config/right_cam_info.yaml");
+    exp_us = node->declare_parameter("right.exposure_time", 5000.0f);
     right_camera_profile.exposure_time = std::chrono::duration<float, std::micro>(exp_us);
-    right_camera_profile.gain = node->declare_parameter("right_camera.gain", 8.0f);
-    right_camera_profile.invert_image = node->declare_parameter("right_camera.invert", false);
-    right_camera_profile.trigger_mode = node->declare_parameter("right_camera.trigger_mode", false);
+    right_camera_profile.gain = node->declare_parameter("right.gain", 8.0f);
+    right_camera_profile.invert_image = node->declare_parameter("right.invert", false);
+    right_camera_profile.trigger_mode = node->declare_parameter("right.trigger_mode", false);
     right_camera_profile.gain = std::clamp(right_camera_profile.gain, 0.0f, 16.0f);
   }
 };
@@ -75,6 +75,7 @@ class CameraCore final : public rclcpp::Node
 {
 public:
   explicit CameraCore(const rclcpp::NodeOptions & options);
+  ~CameraCore();
 
 private:
   void captureAndPubLeft();

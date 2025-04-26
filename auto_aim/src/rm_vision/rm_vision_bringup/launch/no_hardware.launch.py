@@ -1,27 +1,28 @@
-import os
-import sys
-from ament_index_python.packages import get_package_share_directory
-sys.path.append(os.path.join(get_package_share_directory('rm_vision_bringup'), 'launch'))
-
+import os, sys
+from launch import LaunchDescription
+from launch.actions import Shutdown
+from launch_ros.actions import ComposableNodeContainer
+from ament_index_python.packages import get_package_share_directory as gpsd
+sys.path.append(os.path.join(gpsd('rm_vision_bringup'), 'launch'))
 
 def generate_launch_description():
 
-    from common import launch_params, robot_state_publisher, node_params, tracker_node
-    from launch_ros.actions import Node
-    from launch import LaunchDescription
+    from node_desc import rsp_component, detector_node, tracker_node
 
-    detector_node = Node(
-        package='armor_detector',
-        executable='armor_detector_node',
+    container = ComposableNodeContainer(
+        name='vision_container',
+        namespace='',
+        package='rclcpp_components',
+        executable='component_container_mt',
+        composable_node_descriptions=[
+            detector_node,
+            tracker_node,
+            rsp_component,
+        ],
+        output='screen',
         emulate_tty=True,
-        output='both',
-        parameters=[node_params],
-        arguments=['--ros-args', '--log-level',
-                   'armor_detector:='+launch_params['detector_log_level']],
+        on_exit=Shutdown(),
     )
-
     return LaunchDescription([
-        robot_state_publisher,
-        detector_node,
-        tracker_node,
+        container
     ])
