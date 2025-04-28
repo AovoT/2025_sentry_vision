@@ -3,6 +3,7 @@
 #include <tf2_ros/buffer_interface.h>
 #include <tf2_ros/transform_listener.h>
 
+#include <auto_aim_interfaces/msg/detail/tracker_info__struct.hpp>
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -233,6 +234,10 @@ void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
       RCLCPP_WARN(get_logger(), "Failed to send vision data to %s port", tf_to);
     }
   }
+}
+void RMSerialDriver::handlePacket(const ReceiveTargetInfoData & pkt, DoubleEnd de)
+{
+  
 }
 }  // namespace rm_serial_driver
 

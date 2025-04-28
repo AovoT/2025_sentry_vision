@@ -8,6 +8,7 @@
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <image_transport/image_transport.hpp>
+#include <mutex>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
 #include <rclcpp/duration.hpp>
@@ -29,6 +30,8 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 : Node("armor_detector", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting DetectorNode!");
+  last_find_[LEFT] = false;
+  last_find_[RIGHT] = false;
 
   // Detector
   detector_ = initDetector();
@@ -81,7 +84,7 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   cam_info_sub_[LEFT] = this->create_subscription<sensor_msgs::msg::CameraInfo>(
     "/left/cam_info", rclcpp::SensorDataQoS(),
     [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
-        this->camInfoCallback(camera_info, LEFT);
+      this->camInfoCallback(camera_info, LEFT);
     });
   cam_info_sub_[RIGHT] =
     this->create_subscription<sensor_msgs::msg::CameraInfo>(
@@ -105,44 +108,72 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
     &ArmorDetectorNode::onParametersSet, this, std::placeholders::_1));
 }
 
-void ArmorDetectorNode::camInfoCallback(sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info, DoubleEnd de)
+void ArmorDetectorNode::camInfoCallback(
+  sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info, DoubleEnd de)
 {
   cam_center_[de] = cv::Point2f(camera_info->k[2], camera_info->k[5]);
-  cam_info_[de] =
-    std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
-  pnp_solver_[de] =
-    std::make_unique<PnPSolver>(camera_info->k, camera_info->d);
+  cam_info_[de] = std::make_shared<sensor_msgs::msg::CameraInfo>(*camera_info);
+  pnp_solver_[de] = std::make_unique<PnPSolver>(camera_info->k, camera_info->d);
   cam_info_sub_[de].reset();
+}
+bool ArmorDetectorNode::shouldDetect(DoubleEnd de)
+{
+  std::lock_guard<std::mutex> lk(find_mtx_);
+
+  // 如果没人持有——两侧都可检测
+  if (owner_ == -1) {
+    return true;
+  }
+
+  // 如果我是持有者
+  if (owner_ == de) {
+    // 漏检未超限，则继续由我检测
+    if (miss_count_[de] < kMissTolerance) {
+      return true;
+    }
+    // 漏检超限，释放权利，让双方都有机会抢占
+    owner_ = -1;
+    miss_count_[de] = kMissTolerance;
+    return true;  // 本帧也让它检测一次，用于下一步抢占
+  }
+
+  // 如果我不是持有者，则跳过检测
+  return false;
 }
 
 void ArmorDetectorNode::imageCallback(
   const sensor_msgs::msg::Image::ConstSharedPtr img_msg, DoubleEnd de)
 {
-  auto armors = detectArmors(img_msg, de);
-
-  // 1) 更新左右标志
-  bool found = !armors.empty();
-  bool left = (de == LEFT);
-
-  if (left) {
-    m_left_find_ = found;
-    if (!found) m_right_find_ = false;  // 失配时清除另一侧
-  } else {
-    m_right_find_ = found;
-    if (!found) m_left_find_ = false;
+  bool do_detect = shouldDetect(de);
+  std::vector<Armor> armors;
+  bool found = false;
+  if (do_detect) {
+    armors = detectArmors(img_msg, de);
+    found = !armors.empty();
+  }
+  // 2) 在 shouldDetect 之外，再做一次持有者的状态更新
+  if (do_detect) {
+    std::lock_guard<std::mutex> lk(find_mtx_);
+    if (found) {
+      // 抢占：只有当没人持有时才设置
+      int expected = -1;
+      owner_.compare_exchange_strong(expected, de);
+      if (owner_ == de) {
+        // 成为持有者，漏检计数器清零
+        miss_count_[de] = 0;
+      }
+    } else if (owner_ == de) {
+      // 我是持有者但漏检
+      miss_count_[de]++;
+    }
   }
 
-  // 2) 决定是否跳过
-  //    - 都没识别到：跳过
-  //    - 都识别到 && 当前是“左”： 跳过
-  //    - 只有一侧识别到 && 识别侧不等于当前侧：跳过
-  if (!m_left_find_ && !m_right_find_) {
-    return;
-  }
-  if (m_left_find_ && m_right_find_) {
-    if (left) return;
-  } else if (m_left_find_ != left) {
-    return;
+  // 3) 只有当我是持有者 && 本帧检测到 才发布
+  {
+    std::lock_guard<std::mutex> lk(find_mtx_);
+    if (owner_ != de || !found) {
+      return;
+    }
   }
 
   if (pnp_solver_[de] != nullptr) {
@@ -399,7 +430,6 @@ rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParametersSet(
     } else if (name == "armor.max_angle") {
       detector_->a.max_angle = p.as_double();
     }
-
   }
 
   return result;

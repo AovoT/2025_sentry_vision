@@ -84,9 +84,13 @@ private:
   image_transport::Publisher number_img_pub_;
   image_transport::Publisher result_img_pub_;
 
-  //原子变量
-  std::atomic<bool> m_left_find_ = false;
-  std::atomic<bool> m_right_find_ = false; 
+  static constexpr int kMissTolerance = 3;
+
+  std::atomic<int> owner_{-1};  // -1: 无人持有；0: LEFT；1: RIGHT
+  std::atomic<bool> last_find_[2] = {false, false};
+  int miss_count_[2] = {kMissTolerance, kMissTolerance};
+  std::mutex find_mtx_;
+  bool shouldDetect(DoubleEnd de);
 
   std::shared_ptr<rclcpp::AsyncParametersClient> param_client_;
 

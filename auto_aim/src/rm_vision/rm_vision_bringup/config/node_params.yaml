@@ -1,17 +1,18 @@
 /camera_core:
   ros__parameters:
-    left_camera:
+    rate: 1000
+    left:
       name: "left_camera"
-      cam_info_url: "package://rm_vision_bringup/config/left_cam_info.yaml"
-      exposure_time: 4000.0 # ms
-      gain: 5.0
+      cam_info_url: "package://rm_vision_bringup/config/camera_info_left.yaml"
+      exposure_time: 8000.0 # ms
+      gain: 10.0
       invert: false
       trigger_mode: false
-    right_camera:
+    right:
       name: "right_camera"
-      cam_info_url: "package://rm_vision_bringup/config/right_cam_info.yaml"
-      exposure_time: 4000.0 # ms
-      gain: 5.0
+      cam_info_url: "package://rm_vision_bringup/config/camera_info_right.yaml"
+      exposure_time: 8000.0 # ms
+      gain: 10.0
       invert: false
       trigger_mode: false
 
