@@ -21,21 +21,21 @@ static T declare(
 
 Params::Params(rclcpp::Node * node)
 {
-  left_config.device_name =
+  config[LEFT].device_name =
     declare(node, "left.device_name", std::string("/dev/ttyACM0"));
-  left_config.baudrate = declare(node, "left.baud_rate", 115200);
-  left_config.hardware_flow = declare(node, "left.hardware_flow", false);
-  left_config.parity = declare(node, "left.parity", false);
-  left_config.stop_bits = declare(node, "left.stop_bits", 1);
-  left_config.timeout_ms = declare(node, "left.timeout_ms", 1000);
+  config[LEFT].baudrate = declare(node, "left.baud_rate", 115200);
+  config[LEFT].hardware_flow = declare(node, "left.hardware_flow", false);
+  config[LEFT].parity = declare(node, "left.parity", false);
+  config[LEFT].stop_bits = declare(node, "left.stop_bits", 1);
+  config[LEFT].timeout_ms = declare(node, "left.timeout_ms", 1000);
 
-  right_config.device_name =
+  config[RIGHT].device_name =
     declare(node, "right.device_name", std::string("/dev/ttyACM1"));
-  right_config.baudrate = declare(node, "right.baud_rate", 115200);
-  right_config.hardware_flow = declare(node, "right.hardware_flow", false);
-  right_config.parity = declare(node, "right.parity", false);
-  right_config.stop_bits = declare(node, "right.stop_bits", 1);
-  right_config.timeout_ms = declare(node, "right.timeout_ms", 1000);
+  config[RIGHT].baudrate = declare(node, "right.baud_rate", 115200);
+  config[RIGHT].hardware_flow = declare(node, "right.hardware_flow", false);
+  config[RIGHT].parity = declare(node, "right.parity", false);
+  config[RIGHT].stop_bits = declare(node, "right.stop_bits", 1);
+  config[RIGHT].timeout_ms = declare(node, "right.timeout_ms", 1000);
 
   is_debug = declare(node, "is_debug", false);
 }
@@ -111,53 +111,49 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions & opts)
   params_(this),
   pubs_(this),
   subs_(this, this),
-  clis_(this),
-  left_serial_parser_(get_logger()),
-  right_serial_parser_(get_logger())
+  clis_(this)
 {
-  left_serial_parser_.registerHandler<ReceiveImuData>(
+  serial_parser_[LEFT] = std::make_unique<SerialParser>(this->get_logger());
+  serial_parser_[RIGHT] = std::make_unique<SerialParser>(this->get_logger());
+  serial_parser_[LEFT]->registerHandler<ReceiveImuData>(
     0x01, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::LEFT); });
-  left_serial_parser_.registerHandler<ReceiveTargetInfoData>(
+  serial_parser_[LEFT]->registerHandler<ReceiveTargetInfoData>(
     0x09, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::LEFT); });
-  right_serial_parser_.registerHandler<ReceiveImuData>(
+  serial_parser_[RIGHT]->registerHandler<ReceiveImuData>(
     0x01, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::RIGHT); });
-  right_serial_parser_.registerHandler<ReceiveTargetInfoData>(
+  serial_parser_[RIGHT]->registerHandler<ReceiveTargetInfoData>(
     0x09, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::RIGHT); });
-  left_port_ = std::make_shared<SerialPort>(params_.left_config);
-  right_port_ = std::make_shared<SerialPort>(params_.right_config);
-  left_port_->open();
-  right_port_->open();
-  left_thread_ = std::thread([this] { receiveLoop(DoubleEnd::LEFT); });
-  right_thread_ = std::thread([this] { receiveLoop(DoubleEnd::RIGHT); });
+  port_[LEFT] = std::make_shared<SerialPort>(params_.config[LEFT]);
+  port_[RIGHT] = std::make_shared<SerialPort>(params_.config[RIGHT]);
+  port_[LEFT]->open();
+  port_[RIGHT]->open();
+  thread_[LEFT] = std::thread([this] { receiveLoop(DoubleEnd::LEFT); });
+  thread_[RIGHT] = std::thread([this] { receiveLoop(DoubleEnd::RIGHT); });
 }
 
 RMSerialDriver::~RMSerialDriver()
 {
   rclcpp::shutdown();
-  if (left_thread_.joinable()) left_thread_.join();
-  if (right_thread_.joinable()) right_thread_.join();
+  if (thread_[LEFT].joinable()) thread_[LEFT].join();
+  if (thread_[RIGHT].joinable()) thread_[RIGHT].join();
 }
 
-void RMSerialDriver::receiveLoop(DoubleEnd end)
+void RMSerialDriver::receiveLoop(DoubleEnd de)
 {
-  auto & port = (end == DoubleEnd::LEFT ? left_port_ : right_port_);
-  auto & parser =
-    (end == DoubleEnd::LEFT ? left_serial_parser_ : right_serial_parser_);
-  uint8_t * buf = (end == DoubleEnd::LEFT ? left_buf_ : right_buf_);
-  std::string end_str = end == DoubleEnd::LEFT ? "left" : "right";
+  std::string end_str = de == DoubleEnd::LEFT ? "left" : "right";
 
   while (rclcpp::ok()) {
-    ssize_t n = port->read(buf, BUFFER_SIZE);
+    ssize_t n = port_[de]->read(data_buf_[de], BUFFER_SIZE);
     if (n > 0) {
       // 真正读到数据，喂给解析器
-      parser.feed(buf, static_cast<size_t>(n));
+      serial_parser_[de]->feed(data_buf_[de], static_cast<size_t>(n));
     } else if (n == 0 || (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     } else {
       // 真正的读错误，打印并退出循环
       RCLCPP_ERROR(
         get_logger(), "%s port read error (%s)",
-        (end == DoubleEnd::LEFT ? "Left" : "Right"), std::strerror(errno));
+        (de == DoubleEnd::LEFT ? "Left" : "Right"), std::strerror(errno));
       break;
     }
   }
@@ -213,7 +209,7 @@ void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
     std::shared_ptr<SerialPort> port;
   };
   Side sides[2] = {
-    {"gimbal_left_link", left_port_}, {"gimbal_right_link", right_port_}};
+    {"gimbal_left_link", port_[LEFT]}, {"gimbal_right_link", port_[RIGHT]}};
 
   for (int i = 0; i < 2; ++i) {
     auto pkt = base_pkt;  // 拷贝一份

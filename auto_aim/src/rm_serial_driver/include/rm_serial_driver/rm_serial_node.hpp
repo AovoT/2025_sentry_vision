@@ -18,12 +18,11 @@ namespace rm_serial_driver
 {
 
 class RMSerialDriver;
-enum class DoubleEnd { LEFT, RIGHT };
+enum DoubleEnd { LEFT = 0, RIGHT = 1, DoubleEndMax = 2 };
 
 struct Params
 {
-  SerialConfig left_config;
-  SerialConfig right_config;
+  SerialConfig config[DoubleEndMax];
   bool is_debug;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
     param_cb_handle;
@@ -82,16 +81,16 @@ public:
 private:
   static constexpr int BUFFER_SIZE = 128;
   uint8_t prev_color_{0};
-  std::thread left_thread_, right_thread_;
+  std::thread thread_[DoubleEndMax];
 
   Params params_;
   Publishers pubs_;
   Subscribers subs_;
   Clients clis_;
 
-  std::shared_ptr<SerialPort> left_port_, right_port_;
-  SerialParser left_serial_parser_, right_serial_parser_;
-  uint8_t left_buf_[BUFFER_SIZE], right_buf_[BUFFER_SIZE];
+  std::shared_ptr<SerialPort> port_[DoubleEndMax];
+  std::unique_ptr<SerialParser> serial_parser_[DoubleEndMax];
+  uint8_t data_buf_[DoubleEndMax][BUFFER_SIZE];
 
   void receiveLoop(DoubleEnd end);
   void handlePacket(const ReceiveImuData & pkt, DoubleEnd end);
