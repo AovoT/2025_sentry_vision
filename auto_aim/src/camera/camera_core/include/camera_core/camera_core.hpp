@@ -83,7 +83,9 @@ struct Publishers
 
   explicit Publishers(rclcpp::Node * node)
   {
-    auto sensor_qos = rclcpp::SensorDataQoS();
+    auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1))
+                        .reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT)
+                        .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
 
     image_pub[LEFT] = node->create_publisher<sensor_msgs::msg::Image>(
       "/left/image_raw", sensor_qos);

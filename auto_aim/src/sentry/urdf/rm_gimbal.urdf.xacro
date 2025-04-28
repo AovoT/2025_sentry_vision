@@ -20,7 +20,7 @@
   <link name="gimbal_left_link_offset"/>
 
   <joint name="gimbal_left_offset_joint" type="fixed">
-    <origin xyz="0 0.2 0.1" rpy="0 0 0"/>
+    <origin xyz="0.4229 0.20951 0.15318" rpy="0 0 0"/>
     <parent link="gimbal_big_link"/>
     <child link="gimbal_left_link_offset"/>
   </joint>
@@ -37,7 +37,7 @@
   <!-- 右云台：增加固定偏移层 -->
   <link name="gimbal_right_link_offset"/>
   <joint name="gimbal_right_offset_joint" type="fixed">
-    <origin xyz="0 -0.2 0.1" rpy="0 0 0"/>
+    <origin xyz="0.03382 -0.20951 0.15527" rpy="0 0 0"/>
     <parent link="gimbal_big_link"/>
     <child link="gimbal_right_link_offset"/>
   </joint>
@@ -56,11 +56,10 @@
       <origin xyz="${xyz}" rpy="${rpy}"/>
       <parent link="${parent_link}"/>
       <child link="${camera_link_name}"/>
-      <axis xyz="0 0 0"/>
     </joint>
     <link name="${optical_frame_name}"/>
     <joint name="${optical_joint_name}" type="fixed">
-      <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
+       <origin xyz="0.04 0 0.02" rpy="-1.5708 0 -1.5708"/>
       <parent link="${camera_link_name}"/>
       <child link="${optical_frame_name}"/>
     </joint>

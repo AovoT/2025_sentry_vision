@@ -189,7 +189,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
   // Tranform armor position from image frame to world coordinate
   for (auto & armor : armors_msg->armors) {
     geometry_msgs::msg::PoseStamped ps;
-
+    ps.header.stamp = rclcpp::Time(0);
     if(armor.gimbal_side_flag == 0 ) {
       ps.header.frame_id = "left_camera_optical_frame";
     } else {
