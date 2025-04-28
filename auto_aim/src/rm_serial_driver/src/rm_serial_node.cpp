@@ -1,12 +1,13 @@
 #include "rm_serial_driver/rm_serial_node.hpp"
 
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer_interface.h>
 #include <tf2_ros/transform_listener.h>
 
 #include <auto_aim_interfaces/msg/detail/tracker_info__struct.hpp>
 #include <rclcpp/qos.hpp>
 #include <tf2/LinearMath/Quaternion.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2/time.hpp>
 
 #include "rm_serial_driver/packet.hpp"
 
@@ -172,7 +173,9 @@ void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
   }
   geometry_msgs::msg::TransformStamped t;
   t.header.stamp = now();
-  t.header.frame_id = (end == DoubleEnd::LEFT ? "gimbal_left_link_offset" : "gimbal_right_link_offset");
+  t.header.frame_id =
+    (end == DoubleEnd::LEFT ? "gimbal_left_link_offset"
+                            : "gimbal_right_link_offset");
   t.child_frame_id =
     (end == DoubleEnd::LEFT ? "gimbal_left_link" : "gimbal_right_link");
   t.transform.rotation = tf2::toMsg(q);
@@ -180,13 +183,17 @@ void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
 }
 void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
 {
+  DoubleEnd de = msg->gimbal_side_flag == 0 ? LEFT : RIGHT;
   bool is_valid = msg->header.frame_id == "odom";
   if (!is_valid) {
-    RCLCPP_WARN(get_logger(), "invalid target frame id : %s" , msg->header.frame_id.c_str());
+    RCLCPP_WARN(
+      get_logger(), "invalid target frame id : %s",
+      msg->header.frame_id.c_str());
     return;
   }
   if (params_.is_debug) {
-    RCLCPP_INFO(get_logger(), "yaw: %.2f", std::atan2(msg->position.x, msg->position.y));
+    RCLCPP_INFO(
+      get_logger(), "yaw: %.2f", std::atan2(msg->position.x, msg->position.y));
   }
   // 1. 填充基础数据包（直接用 odom 坐标）
   SendVisionData base_pkt{};
@@ -206,47 +213,25 @@ void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
 
   // 2. 准备待变换的 PointStamped
   geometry_msgs::msg::PointStamped pt_in;
-  pt_in.header.stamp = now();
-  pt_in.header.frame_id = "odom";
+  pt_in.header = msg->header;
   pt_in.point.x = d.x;
   pt_in.point.y = d.y;
   pt_in.point.z = d.z;
-
-  // 3. 对左右两路分别做变换并发送
-  struct Side
-  {
-    const char * frame;
-    std::shared_ptr<SerialPort> port;
-  };
-  Side sides[2] = {
-    {"gimbal_left_link", port_[LEFT]}, {"gimbal_right_link", port_[RIGHT]}};
-
-  for (int i = 0; i < 2; ++i) {
-    auto pkt = base_pkt;  // 拷贝一份
-    const char * tf_to = sides[i].frame;
-    try {
-      auto pt_out = subs_.tf_buffer->transform(pt_in, tf_to);
-      pkt.data.x = pt_out.point.x;
-      pkt.data.y = pt_out.point.y;
-      pkt.data.z = pt_out.point.z;
-    } catch (const tf2::TransformException & e) {
-      RCLCPP_WARN(
-        get_logger(), "TF transform to %s failed: %s", tf_to, e.what());
-      // 失败就用原始 odom 坐标
-    }
-
-    // 4. 打包并发到对应串口
-    pkt.frame_header.id = 0x03;
-    auto buf = pack(pkt);
-    auto port = sides[i].port;
-    if (static_cast<ssize_t>(port->write(buf.data(), buf.size())) < 0) {
-      RCLCPP_WARN(get_logger(), "Failed to send vision data to %s port", tf_to);
-    }
+  std::string target_frame = de == LEFT ? "gimbal_left_link_offset" : "gimbal_right_link_offset";
+  geometry_msgs::msg::PointStamped pt_out;
+  pt_out.header = pt_in.header;
+  pt_in.header.stamp = rclcpp::Time(0);
+  pt_out = subs_.tf_buffer->transform(pt_in, target_frame, tf2::durationFromSec(0.1));
+  // 4. 打包并发到对应串口
+  base_pkt.frame_header.id = 0x03;
+  auto buf = pack(base_pkt);
+  if (static_cast<ssize_t>(port_[de]->write(buf.data(), buf.size())) < 0) {
+    RCLCPP_WARN(get_logger(), "Failed to send vision data to %s port", de == LEFT ? "left" : "right");
   }
 }
-void RMSerialDriver::handlePacket(const ReceiveTargetInfoData & pkt, DoubleEnd de)
+void RMSerialDriver::handlePacket(
+  const ReceiveTargetInfoData & pkt, DoubleEnd de)
 {
-
 }
 }  // namespace rm_serial_driver
 
