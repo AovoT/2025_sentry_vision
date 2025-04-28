@@ -4,16 +4,16 @@
     left:
       name: "left_camera"
       cam_info_url: "package://rm_vision_bringup/config/camera_info_left.yaml"
-      exposure_time: 8000.0 # ms
+      exposure_time: 8000 # ms
       gain: 10.0
-      invert: false
+      invert: true
       trigger_mode: false
     right:
       name: "right_camera"
       cam_info_url: "package://rm_vision_bringup/config/camera_info_right.yaml"
-      exposure_time: 8000.0 # ms
+      exposure_time: 8000 # ms
       gain: 10.0
-      invert: false
+      invert: true
       trigger_mode: false
 
 /rm_serial_driver:

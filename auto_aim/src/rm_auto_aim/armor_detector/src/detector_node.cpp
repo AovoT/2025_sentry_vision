@@ -83,35 +83,33 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
       debug_ ? createDebugPublishers() : destroyDebugPublishers();
     });
   
-  cb_grp[LEFT] = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-  cb_grp[RIGHT] = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-  rclcpp::SubscriptionOptions opts[DoubleEndMax];
-  opts[LEFT].callback_group = cb_grp[LEFT];
-  opts[RIGHT].callback_group = cb_grp[RIGHT];
+  cb_grp = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions opts;
+  opts.callback_group = cb_grp;
   cam_info_sub_[LEFT] = this->create_subscription<sensor_msgs::msg::CameraInfo>(
     "/left/cam_info", rclcpp::SensorDataQoS(),
     [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
       this->camInfoCallback(camera_info, LEFT);
-    }, opts[LEFT]);
+    }, opts);
   cam_info_sub_[RIGHT] =
     this->create_subscription<sensor_msgs::msg::CameraInfo>(
       "/right/cam_info", rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
         this->camInfoCallback(camera_info, RIGHT);
-      }, opts[RIGHT]);
+      }, opts);
 
 
   img_sub_[LEFT] = this->create_subscription<sensor_msgs::msg::Image>(
     "/left/image_raw", rclcpp::SensorDataQoS(),
     [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, LEFT);
-    }, opts[LEFT]);
+    }, opts);
 
   img_sub_[RIGHT] = this->create_subscription<sensor_msgs::msg::Image>(
     "/right/image_raw", rclcpp::SensorDataQoS(),
     [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, RIGHT);
-    }, opts[RIGHT]);
+    }, opts);
   param_cb_handle_ = this->add_on_set_parameters_callback(std::bind(
     &ArmorDetectorNode::onParametersSet, this, std::placeholders::_1));
 }
@@ -179,7 +177,7 @@ void ArmorDetectorNode::imageCallback(
   // 3) 只有当我是持有者 && 本帧检测到 才发布
   {
     std::lock_guard<std::mutex> lk(find_mtx_);
-    if (owner_ != de || !found) {
+    if (owner_ != de || !found || armors.empty()) {
       return;
     }
   }

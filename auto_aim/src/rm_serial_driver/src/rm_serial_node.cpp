@@ -179,6 +179,14 @@ void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
 }
 void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
 {
+  bool is_valid = msg->header.frame_id == "odom";
+  if (!is_valid) {
+    RCLCPP_WARN(get_logger(), "invalid target frame id : %s" , msg->header.frame_id.c_str());
+    return;
+  }
+  if (params_.is_debug) {
+    RCLCPP_INFO(get_logger(), "yaw: %.2f", std::atan2(msg->position.x, msg->position.y));
+  }
   // 1. 填充基础数据包（直接用 odom 坐标）
   SendVisionData base_pkt{};
   auto & d = base_pkt.data;

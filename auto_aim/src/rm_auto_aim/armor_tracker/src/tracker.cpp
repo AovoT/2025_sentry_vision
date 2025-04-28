@@ -78,7 +78,6 @@ void Tracker::update(const Armors::SharedPtr & armors_msg)
         auto p = armor.pose.position;
         Eigen::Vector3d position_vec(p.x, p.y, p.z);
         double position_diff = (predicted_position - position_vec).norm();
-        std::cout << "yaw: "  << orientationToYaw(armor.pose.orientation) << std::endl;
         if (position_diff < min_position_diff) {
           // Find the closest armor
           min_position_diff = position_diff;

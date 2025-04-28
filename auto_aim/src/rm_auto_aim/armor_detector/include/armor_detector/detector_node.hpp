@@ -94,7 +94,7 @@ private:
   bool shouldDetect(DoubleEnd de);
 
   std::shared_ptr<rclcpp::AsyncParametersClient> param_client_;
-  rclcpp::CallbackGroup::SharedPtr cb_grp[DoubleEndMax];
+  rclcpp::CallbackGroup::SharedPtr cb_grp;
 
   // 用于保存 add_on_set_parameters_callback 的句柄，防止回调被 GC
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;
