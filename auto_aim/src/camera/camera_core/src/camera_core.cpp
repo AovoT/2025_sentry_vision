@@ -2,6 +2,9 @@
 #include "camera_core/camera_core.hpp"
 
 #include <cv_bridge/cv_bridge.h>
+#include <camera_info_manager/camera_info_manager.hpp>
+#include <rclcpp/rate.hpp>
+#include <std_msgs/msg/detail/header__struct.hpp>
 
 namespace camera
 {
@@ -10,103 +13,55 @@ CameraCore::CameraCore(const rclcpp::NodeOptions & options)
 : Node("camera_node", options), params_(this), pubs_(this), subs_(this)
 {
   // Create cameras
-  left_camera_ = std::make_unique<hikcamera::ImageCapturer>(
+  camera_[LEFT] = std::make_unique<hikcamera::ImageCapturer>(
     params_.left_camera_profile, params_.left_camera_name.c_str());
-  right_camera_ = std::make_unique<hikcamera::ImageCapturer>(
+  camera_[RIGHT] = std::make_unique<hikcamera::ImageCapturer>(
     params_.right_camera_profile, params_.right_camera_name.c_str());
+  cam_info_manager_[LEFT] =
+    std::make_unique<camera_info_manager::CameraInfoManager>(
+      this, params_.left_camera_name, params_.left_cam_info_url
+  );
+  cam_info_manager_[RIGHT] =
+    std::make_unique<camera_info_manager::CameraInfoManager>(
+      this, params_.right_camera_name, params_.right_cam_info_url
+  );
 
-  // Parameter callback
-  params_.param_cb_handle = this->add_on_set_parameters_callback(
-    std::bind(&CameraCore::set_param_cb, this, std::placeholders::_1));
-
-  // Timers
-  left_timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(1), std::bind(&CameraCore::captureAndPubLeft, this));
-  right_timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(1), std::bind(&CameraCore::captureAndPubRight, this));
+  capture_thread_[LEFT] = std::thread([this] { this->cameraLoop(LEFT); });
+  capture_thread_[RIGHT] = std::thread([this] { this->cameraLoop(RIGHT); });
 }
 CameraCore::~CameraCore()
 {
-  left_timer_->cancel();
-  right_timer_->cancel();
   rclcpp::shutdown();
-}
-
-void CameraCore::captureAndPubLeft()
-{
-  auto img = left_camera_->read();
-  auto msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", img).toImageMsg();
-  pubs_.left_image_pub->publish(*msg);
-}
-
-void CameraCore::captureAndPubRight()
-{
-  auto img = right_camera_->read();
-  auto msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", img).toImageMsg();
-  pubs_.right_image_pub->publish(*msg);
-}
-
-rcl_interfaces::msg::SetParametersResult CameraCore::set_param_cb(
-  const std::vector<rclcpp::Parameter> & params)
-{
-  rcl_interfaces::msg::SetParametersResult result;
-  result.successful = true;
-  result.reason = "Parameters updated successfully";
-
-  try {
-    for (const auto & p : params) {
-      const auto & n = p.get_name();
-      if (n == "left.exposure_time") {
-        int v = p.as_int();
-        params_.left_camera_profile.exposure_time = std::chrono::duration<float, std::micro>(v);
-        RCLCPP_INFO(get_logger(), "Updated left exposure to %d us", v);
-      } else if (n == "left.gain") {
-        double v = p.as_double();
-        params_.left_camera_profile.gain = std::clamp(v, 0.0, 16.0);
-        RCLCPP_INFO(get_logger(), "Updated left gain to %.2f", params_.left_camera_profile.gain);
-      } else if (n == "left.invert") {
-        params_.left_camera_profile.invert_image = p.as_bool();
-        RCLCPP_INFO(
-          get_logger(), "Left invert set to %s",
-          params_.left_camera_profile.invert_image ? "true" : "false");
-      } else if (n == "left.trigger_mode") {
-        params_.left_camera_profile.trigger_mode = p.as_bool();
-        RCLCPP_INFO(
-          get_logger(), "Left trigger set to %s",
-          params_.left_camera_profile.trigger_mode ? "true" : "false");
-      } else if (n == "left.cam_info_url") {
-        params_.right_cam_info_url = p.as_string();
-        RCLCPP_INFO(get_logger(), "Left cam info url set to %s", p.as_string().c_str());
-      } else if (n == "right.exposure_time") {
-        int v = p.as_int();
-        params_.right_camera_profile.exposure_time = std::chrono::duration<float, std::micro>(v);
-        RCLCPP_INFO(get_logger(), "Updated right exposure to %d us", v);
-      } else if (n == "right.gain") {
-        double v = p.as_double();
-        params_.right_camera_profile.gain = std::clamp(v, 0.0, 16.0);
-        RCLCPP_INFO(get_logger(), "Updated right gain to %.2f", params_.right_camera_profile.gain);
-      } else if (n == "right.invert") {
-        params_.right_camera_profile.invert_image = p.as_bool();
-        RCLCPP_INFO(
-          get_logger(), "Right invert set to %s",
-          params_.right_camera_profile.invert_image ? "true" : "false");
-      } else if (n == "right.trigger_mode") {
-        params_.right_camera_profile.trigger_mode = p.as_bool();
-        RCLCPP_INFO(
-          get_logger(), "Right trigger set to %s",
-          params_.right_camera_profile.trigger_mode ? "true" : "false");
-      } else if (n == "right.cam_info_url") {
-        params_.right_cam_info_url = p.as_string();
-        RCLCPP_INFO(get_logger(), "Right cam info url set to %s", p.as_string().c_str());
-      }
-    }
-  } catch (const std::exception & e) {
-    result.successful = false;
-    result.reason = e.what();
-    RCLCPP_ERROR(get_logger(), "Failed to update parameters: %s", e.what());
+  if (capture_thread_[LEFT].joinable()) {
+    capture_thread_[LEFT].join();
   }
+  if (capture_thread_[RIGHT].joinable()) {
+    capture_thread_[RIGHT].join();
+  }
+}
 
-  return result;
+void CameraCore::cameraLoop(DoubleEnd de)
+{
+  rclcpp::WallRate rate(params_.rate);
+  while (rclcpp::ok()) {
+    captureAndPub(de);
+    rate.sleep();
+  }
+}
+
+void CameraCore::captureAndPub(DoubleEnd de)
+{
+  auto img = camera_[de]->read();
+  std_msgs::msg::Header hdr;
+  hdr.stamp = this->now();
+  std::string de_str = de == LEFT ? "left" : "right";
+  hdr.frame_id = de_str + "_camera_optical_frame";
+  auto img_msg =
+    cv_bridge::CvImage(hdr, "bgr8", img).toImageMsg();
+  auto info_msg = cam_info_manager_[de]->getCameraInfo();
+  info_msg.header = hdr;
+  pubs_.image[de].publish(img_msg);
+  pubs_.cam_info[de]->publish(info_msg);
 }
 
 }  // namespace camera

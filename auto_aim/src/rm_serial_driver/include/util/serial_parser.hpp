@@ -42,34 +42,43 @@ struct has_checksum_field<T, std::void_t<decltype(std::declval<T>().checksum)>>
 template <typename Packet>
 std::vector<uint8_t> pack(const Packet & pkt_in)
 {
+  // 复制一份，以便改写 header 字段
   Packet pkt = pkt_in;
 
-  // 1) 初始化帧头
+  // —— 1) 设置 header 字段 ——
+  // SOF
   pkt.frame_header.sof = 0x5A;
+  // payload 长度（字节数）
   pkt.frame_header.len = static_cast<uint8_t>(sizeof(pkt.data));
-  // pkt.frame_header.id 需由外部设置
+  // id 由外部 pkt_in.frame_header.id 提供，pack 不改动它
 
-  // 2) 计算帧头 CRC8 (初始值 0xFF)
+  // 计算 CRC8（仅对 sof, len, id 三字节，seed = 0xFF）
   {
-    uint8_t hdr_buf[3] = {
+    uint8_t tmp[3] = {
       pkt.frame_header.sof, pkt.frame_header.len, pkt.frame_header.id};
     pkt.frame_header.crc =
-      crc8::get_CRC8_check_sum(hdr_buf, /*len=*/3, /*seed=*/0xFF);
+      crc8::get_CRC8_check_sum(tmp, /*len=*/3, /*seed=*/0xFF);
   }
 
-  // 3) 构建完整 buffer（header + data）
+  // —— 2) 拼接 header + payload ——
   std::vector<uint8_t> buf;
-  buf.reserve(sizeof(Packet));
-  auto ph = reinterpret_cast<const uint8_t *>(&pkt.frame_header);
-  buf.insert(buf.end(), ph, ph + sizeof(pkt.frame_header));
-  auto pd = reinterpret_cast<const uint8_t *>(&pkt.data);
+  buf.reserve(/*header*/ 4 + /*data*/ sizeof(pkt.data) + /*CRC16*/ 2);
+
+  // 手工推入 4 字节 header，避免任何 padding
+  buf.push_back(pkt.frame_header.sof);
+  buf.push_back(pkt.frame_header.len);
+  buf.push_back(pkt.frame_header.id);
+  buf.push_back(pkt.frame_header.crc);
+
+  // 推入 payload
+  const uint8_t * pd = reinterpret_cast<const uint8_t *>(&pkt.data);
   buf.insert(buf.end(), pd, pd + sizeof(pkt.data));
 
-  // 4) 计算 CRC16 并小端追加 (初始值 0xFFFF)
+  // —— 3) 计算 CRC16（对上面所有字节，seed = 0xFFFF）并以小端追加 ——
   uint16_t crc16_val =
     crc16::get_CRC16_check_sum(buf.data(), buf.size(), /*seed=*/0xFFFF);
   buf.push_back(static_cast<uint8_t>(crc16_val & 0xFF));
-  buf.push_back(static_cast<uint8_t>(crc16_val >> 8));
+  buf.push_back(static_cast<uint8_t>((crc16_val >> 8) & 0xFF));
 
   return buf;
 }

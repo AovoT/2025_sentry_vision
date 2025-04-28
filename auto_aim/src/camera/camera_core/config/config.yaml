@@ -1,5 +1,6 @@
 /camera_core:
   ros__parameters:
+    rate: 180
     left:
       name: "left_camera"
       cam_info_url: "package://camera_core/config/left_cam_info.yaml"
