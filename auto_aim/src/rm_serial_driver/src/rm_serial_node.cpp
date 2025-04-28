@@ -4,6 +4,7 @@
 #include <tf2_ros/transform_listener.h>
 
 #include <auto_aim_interfaces/msg/detail/tracker_info__struct.hpp>
+#include <rclcpp/qos.hpp>
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
@@ -50,7 +51,7 @@ Subscribers::Subscribers(rclcpp::Node * node, RMSerialDriver * parent)
   tf_buffer = std::make_shared<tf2_ros::Buffer>(node->get_clock());
   tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
   target_sub = node->create_subscription<auto_aim_interfaces::msg::Target>(
-    "target_topic", 10,
+    "/tracker/target", rclcpp::SensorDataQoS(),
     std::bind(&RMSerialDriver::handleMsg, parent, std::placeholders::_1));
 }
 

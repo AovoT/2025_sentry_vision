@@ -124,62 +124,33 @@ void ArmorDetectorNode::camInfoCallback(
 }
 bool ArmorDetectorNode::shouldDetect(DoubleEnd de)
 {
-  std::lock_guard<std::mutex> lk(find_mtx_);
-
-  // 如果没人持有——两侧都可检测
-  if (owner_ == -1) {
-    return true;
+  bool ret = false;
+  if (last_find_[de]) {
+    ret = true;
+  } else if (!last_find_[LEFT] && !last_find_[RIGHT]) {
+    ret = true;
+  } else {
+    ret = false;
   }
-
-  // 如果我是持有者
-  if (owner_ == de) {
-    // 漏检未超限，则继续由我检测
-    if (miss_count_[de] < kMissTolerance) {
-      return true;
-    }
-    // 漏检超限，释放权利，让双方都有机会抢占
-    owner_ = -1;
-    miss_count_[de] = kMissTolerance;
-    return true;  // 本帧也让它检测一次，用于下一步抢占
-  }
-
-  // 如果我不是持有者，则跳过检测
-  return false;
+  return ret;
 }
 
 void ArmorDetectorNode::imageCallback(
   const sensor_msgs::msg::Image::ConstSharedPtr img_msg, DoubleEnd de)
 {
-  bool do_detect = shouldDetect(de);
   std::vector<Armor> armors;
-  bool found = false;
-  if (do_detect) {
-    armors = detectArmors(img_msg, de);
-    found = !armors.empty();
+  if (!shouldDetect(de)) {
+    return;
   }
-  // 2) 在 shouldDetect 之外，再做一次持有者的状态更新
-  if (do_detect) {
-    std::lock_guard<std::mutex> lk(find_mtx_);
-    if (found) {
-      // 抢占：只有当没人持有时才设置
-      int expected = -1;
-      owner_.compare_exchange_strong(expected, de);
-      if (owner_ == de) {
-        // 成为持有者，漏检计数器清零
-        miss_count_[de] = 0;
-      }
-    } else if (owner_ == de) {
-      // 我是持有者但漏检
-      miss_count_[de]++;
+  armors = detectArmors(img_msg, de);
+  if (armors.empty()) {
+    if (miss_count_[de]++ >= kMissTolerance) {
+      last_find_[de] = false;
     }
-  }
-
-  // 3) 只有当我是持有者 && 本帧检测到 才发布
-  {
-    std::lock_guard<std::mutex> lk(find_mtx_);
-    if (owner_ != de || !found || armors.empty()) {
-      return;
-    }
+    return;
+  } else {
+    miss_count_[de] = 0;
+    last_find_[de] = true;
   }
 
   if (pnp_solver_[de] != nullptr) {
