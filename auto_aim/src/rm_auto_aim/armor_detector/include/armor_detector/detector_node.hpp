@@ -8,6 +8,7 @@
 #include <image_transport/image_transport.hpp>
 #include <image_transport/publisher.hpp>
 #include <image_transport/subscriber_filter.hpp>
+#include <rclcpp/callback_group.hpp>
 #include <rclcpp/publisher.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -93,6 +94,7 @@ private:
   bool shouldDetect(DoubleEnd de);
 
   std::shared_ptr<rclcpp::AsyncParametersClient> param_client_;
+  rclcpp::CallbackGroup::SharedPtr cb_grp[DoubleEndMax];
 
   // 用于保存 add_on_set_parameters_callback 的句柄，防止回调被 GC
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_handle_;

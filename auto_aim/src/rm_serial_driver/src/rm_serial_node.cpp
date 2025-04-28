@@ -171,7 +171,7 @@ void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
   }
   geometry_msgs::msg::TransformStamped t;
   t.header.stamp = now();
-  t.header.frame_id = "gimbal_big_link";
+  t.header.frame_id = (end == DoubleEnd::LEFT ? "gimbal_left_link_offset" : "gimbal_right_link_offset");
   t.child_frame_id =
     (end == DoubleEnd::LEFT ? "gimbal_left_link" : "gimbal_right_link");
   t.transform.rotation = tf2::toMsg(q);
@@ -237,7 +237,7 @@ void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
 }
 void RMSerialDriver::handlePacket(const ReceiveTargetInfoData & pkt, DoubleEnd de)
 {
-  
+
 }
 }  // namespace rm_serial_driver
 

@@ -11,8 +11,10 @@
 #include <mutex>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <rclcpp/callback_group.hpp>
 #include <rclcpp/duration.hpp>
 #include <rclcpp/qos.hpp>
+#include <rclcpp/subscription_options.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 // STD
@@ -80,30 +82,36 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
       debug_ = p.as_bool();
       debug_ ? createDebugPublishers() : destroyDebugPublishers();
     });
-
+  
+  cb_grp[LEFT] = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  cb_grp[RIGHT] = this->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions opts[DoubleEndMax];
+  opts[LEFT].callback_group = cb_grp[LEFT];
+  opts[RIGHT].callback_group = cb_grp[RIGHT];
   cam_info_sub_[LEFT] = this->create_subscription<sensor_msgs::msg::CameraInfo>(
     "/left/cam_info", rclcpp::SensorDataQoS(),
     [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
       this->camInfoCallback(camera_info, LEFT);
-    });
+    }, opts[LEFT]);
   cam_info_sub_[RIGHT] =
     this->create_subscription<sensor_msgs::msg::CameraInfo>(
       "/right/cam_info", rclcpp::SensorDataQoS(),
       [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr camera_info) {
         this->camInfoCallback(camera_info, RIGHT);
-      });
+      }, opts[RIGHT]);
+
 
   img_sub_[LEFT] = this->create_subscription<sensor_msgs::msg::Image>(
     "/left/image_raw", rclcpp::SensorDataQoS(),
     [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, LEFT);
-    });
+    }, opts[LEFT]);
 
   img_sub_[RIGHT] = this->create_subscription<sensor_msgs::msg::Image>(
     "/right/image_raw", rclcpp::SensorDataQoS(),
     [this](std::shared_ptr<const sensor_msgs::msg::Image> msg) {
       this->imageCallback(msg, RIGHT);
-    });
+    }, opts[RIGHT]);
   param_cb_handle_ = this->add_on_set_parameters_callback(std::bind(
     &ArmorDetectorNode::onParametersSet, this, std::placeholders::_1));
 }
