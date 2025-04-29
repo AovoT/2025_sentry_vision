@@ -16,24 +16,32 @@ namespace rm_auto_aim
 ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 : Node("armor_detector", options)
 {
-  RCLCPP_INFO(get_logger(), "Starting DetectorNode (refactored with QoS)...");
+  RCLCPP_INFO(get_logger(), "Starting ArmorDetectorNode...");
 
-  // Initialize detector
   detector_ = initDetector();
-  // Armors & marker publishers
+  RCLCPP_INFO(get_logger(), "Detector initialized.");
+
   armors_pub_ = create_publisher<auto_aim_interfaces::msg::Armors>(
     "/detector/armors", rclcpp::SensorDataQoS());
+  RCLCPP_INFO(get_logger(), "Armors publisher created.");
+
   marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
     "/detector/marker", rclcpp::QoS(10));
-  // QoS for high-frequency image subscriptions: drop old if busy
+  RCLCPP_INFO(get_logger(), "Marker publisher created.");
+
+  // 然后继续
   auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1))
                       .reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
-  // Camera Info subscriptions
+
   for (int i = 0; i < DoubleEndMax; ++i) {
     cam_info_sub_[i] = create_subscription<sensor_msgs::msg::CameraInfo>(
       i == LEFT ? "/left/cam_info" : "/right/cam_info", rclcpp::SensorDataQoS(),
-      [this, i](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) { camInfoCallback(msg, static_cast<DoubleEnd>(i)); });
+      [this, i](sensor_msgs::msg::CameraInfo::ConstSharedPtr msg) {
+        camInfoCallback(msg, static_cast<DoubleEnd>(i));
+      });
   }
+  RCLCPP_INFO(get_logger(), "Camera Info subscribers created.");
+
   // Image subscriptions with optimized QoS
   for (int i = 0; i < DoubleEndMax; ++i) {
     img_sub_[i] = create_subscription<sensor_msgs::msg::Image>(
@@ -42,12 +50,14 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   }
   // Parameter callback for dynamic updates
   debug_enabled_ = declare_parameter("debug", false);
+
   param_cb_handle_ = add_on_set_parameters_callback(std::bind(
     &ArmorDetectorNode::onParametersSet, this, std::placeholders::_1));
   if (debug_enabled_) {
     createDebugPublishers();
   }
 }
+
 void ArmorDetectorNode::createDebugPublishers()
 {
   if (!debug_pubs_) {
@@ -115,26 +125,51 @@ void ArmorDetectorNode::camInfoCallback(
 
 std::unique_ptr<Detector> ArmorDetectorNode::initDetector()
 {
-  int bin_th = declare_parameter("binary_thres", 160);
-  int color = declare_parameter("detect_color", RED);
-  Detector::LightParams lp{
-    declare_parameter("light.min_ratio", 0.1),
-    declare_parameter("light.max_ratio", 0.4),
-    declare_parameter("light.max_angle", 40.0)};
-  Detector::ArmorParams ap{
-    declare_parameter("armor.min_light_ratio", 0.7),
-    declare_parameter("armor.min_small_center_distance", 0.8),
-    declare_parameter("armor.max_small_center_distance", 3.2),
-    declare_parameter("armor.min_large_center_distance", 3.2),
-    declare_parameter("armor.max_large_center_distance", 5.5),
-    declare_parameter("armor.max_angle", 35.0)};
-  auto det = std::make_unique<Detector>(bin_th, color, lp, ap);
-  // Classifier threshold & ignore classes
-  double thr = declare_parameter("classifier_threshold", 0.7);
-  det->classifier->threshold = thr;
-  return det;
-}
+  rcl_interfaces::msg::ParameterDescriptor param_desc;
+  param_desc.integer_range.resize(1);
+  param_desc.integer_range[0].step = 1;
+  param_desc.integer_range[0].from_value = 0;
+  param_desc.integer_range[0].to_value = 255;
+  int binary_thres = declare_parameter("binary_thres", 160, param_desc);
 
+  param_desc.description = "0-RED, 1-BLUE";
+  param_desc.integer_range[0].from_value = 0;
+  param_desc.integer_range[0].to_value = 1;
+  auto detect_color = declare_parameter("detect_color", RED, param_desc);
+
+  Detector::LightParams l_params = {
+    .min_ratio = declare_parameter("light.min_ratio", 0.1),
+    .max_ratio = declare_parameter("light.max_ratio", 0.4),
+    .max_angle = declare_parameter("light.max_angle", 40.0)};
+
+  Detector::ArmorParams a_params = {
+    .min_light_ratio = declare_parameter("armor.min_light_ratio", 0.7),
+    .min_small_center_distance =
+      declare_parameter("armor.min_small_center_distance", 0.8),
+    .max_small_center_distance =
+      declare_parameter("armor.max_small_center_distance", 3.2),
+    .min_large_center_distance =
+      declare_parameter("armor.min_large_center_distance", 3.2),
+    .max_large_center_distance =
+      declare_parameter("armor.max_large_center_distance", 5.5),
+    .max_angle = declare_parameter("armor.max_angle", 35.0)};
+
+  auto detector =
+    std::make_unique<Detector>(binary_thres, detect_color, l_params, a_params);
+
+  // Init classifier
+  auto pkg_path =
+    ament_index_cpp::get_package_share_directory("armor_detector");
+  auto model_path = pkg_path + "/model/mlp.onnx";
+  auto label_path = pkg_path + "/model/label.txt";
+  double threshold = this->declare_parameter("classifier_threshold", 0.7);
+  std::vector<std::string> ignore_classes = this->declare_parameter(
+    "ignore_classes", std::vector<std::string>{"negative"});
+  detector->classifier = std::make_unique<NumberClassifier>(
+    model_path, label_path, threshold, ignore_classes);
+
+  return detector;
+}
 std::vector<Armor> ArmorDetectorNode::detectArmors(
   const sensor_msgs::msg::Image::ConstSharedPtr & img, DoubleEnd de)
 {
@@ -176,9 +211,10 @@ void ArmorDetectorNode::publishArmorsAndMarkers(
   // Armors message
   auto_aim_interfaces::msg::Armors msg;
   msg.header = header;
-
+  msg.header.frame_id = de == LEFT ? "left_camera_optical_frame" : "right_camera_optical_frame";
 
   int id = 0;
+  visualization_msgs::msg::MarkerArray marray;
   for (const auto & armor : armors) {
     cv::Mat rvec, tvec;
     bool ok = pnp_solver_[de] && pnp_solver_[de]->solvePnP(armor, rvec, tvec);
@@ -208,9 +244,8 @@ void ArmorDetectorNode::publishArmorsAndMarkers(
     msg.armors.push_back(amsg);
   // MarkerArray
   if (debug_enabled_) {
-    visualization_msgs::msg::MarkerArray marray;
     visualization_msgs::msg::Marker cube, text;
-    cube.header = header;
+    cube.header = msg.header;
     cube.ns = "armors";
     cube.type = visualization_msgs::msg::Marker::CUBE;
     cube.action = visualization_msgs::msg::Marker::ADD;
@@ -240,10 +275,12 @@ void ArmorDetectorNode::publishArmorsAndMarkers(
     text.pose = pose;
     text.pose.position.y -= 0.1;
     marray.markers.push_back(text);
-    marker_pub_->publish(marray);
   }
   }
 
+  if(debug_enabled_) {
+    marker_pub_->publish(marray);
+  }
   armors_pub_->publish(msg);
 }
 

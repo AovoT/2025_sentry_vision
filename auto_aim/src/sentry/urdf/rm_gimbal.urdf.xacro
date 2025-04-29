@@ -20,7 +20,7 @@
   <link name="gimbal_left_link_offset"/>
 
   <joint name="gimbal_left_offset_joint" type="fixed">
-    <origin xyz="0.4229 0.20951 0.15318" rpy="0 0 0"/>
+    <origin xyz="0.04229 0.20951 0.15318" rpy="0 0 0"/>
     <parent link="gimbal_big_link"/>
     <child link="gimbal_left_link_offset"/>
   </joint>

@@ -1,5 +1,6 @@
 #include "rm_serial_driver/rm_serial_node.hpp"
 
+#include <rclcpp/logging.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer_interface.h>
 #include <tf2_ros/transform_listener.h>
@@ -148,16 +149,35 @@ void RMSerialDriver::receiveLoop(DoubleEnd de)
   while (rclcpp::ok()) {
     ssize_t n = port_[de]->read(data_buf_[de], BUFFER_SIZE);
     if (n > 0) {
-      // 真正读到数据，喂给解析器
       serial_parser_[de]->feed(data_buf_[de], static_cast<size_t>(n));
-    } else if (n == 0 || (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))) {
+    } 
+    else if (n == 0 || (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    } else {
-      // 真正的读错误，打印并退出循环
+    } 
+    else {
       RCLCPP_ERROR(
-        get_logger(), "%s port read error (%s)",
-        (de == DoubleEnd::LEFT ? "Left" : "Right"), std::strerror(errno));
-      break;
+        get_logger(), "%s port read error (%s), 尝试重连…",
+        end_str.c_str(), std::strerror(errno));
+
+      // 1. 关闭并清理
+      port_[de]->close();
+      port_[de].reset();
+
+      // 2. 重连尝试
+      while (rclcpp::ok()) {
+        try {
+          port_[de] = std::make_shared<SerialPort>(params_.config[de]);
+          RCLCPP_INFO(get_logger(), "%s 端口重连成功", end_str.c_str());
+          break;
+        } catch (const std::exception &e) {
+          RCLCPP_WARN(
+            get_logger(), "%s 端口重连失败：%s，1s后重试",
+            end_str.c_str(), e.what());
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+      }
+
+      // 重连成功后，继续读数据
     }
   }
 }

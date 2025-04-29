@@ -190,12 +190,7 @@ void ArmorTrackerNode::armorsCallback(const auto_aim_interfaces::msg::Armors::Sh
   for (auto & armor : armors_msg->armors) {
     geometry_msgs::msg::PoseStamped ps;
     ps.header.stamp = rclcpp::Time(0);
-    if(armor.gimbal_side_flag == 0 ) {
-      ps.header.frame_id = "left_camera_optical_frame";
-    } else {
-      ps.header.frame_id = "right_camera_optical_frame";
-    }
-
+    ps.header.frame_id = armors_msg->header.frame_id;
     ps.pose = armor.pose;
     try {
       armor.pose = tf2_buffer_->transform(ps, target_frame_).pose;

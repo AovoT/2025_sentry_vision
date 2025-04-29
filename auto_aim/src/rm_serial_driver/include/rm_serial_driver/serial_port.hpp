@@ -31,7 +31,16 @@ public:
 
   ~SerialPort()
   {
-    if (fd_ >= 0) ::close(fd_);
+    close();
+  }
+
+  // 新增：显式关闭接口
+  void close()
+  {
+    if (fd_ >= 0) {
+      ::close(fd_);
+      fd_ = -1;
+    }
   }
 
   void open()
@@ -46,8 +55,7 @@ public:
     // 确认打开后确实是字符设备
     struct stat st;
     if (fstat(fd_, &st) != 0 || !S_ISCHR(st.st_mode)) {
-      ::close(fd_);
-      fd_ = -1;
+      close();
       throw std::runtime_error(
         "SerialPort: target is not a character device: " + cfg_.device_name);
     }
