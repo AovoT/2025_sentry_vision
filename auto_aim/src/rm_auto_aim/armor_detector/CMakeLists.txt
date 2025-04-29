@@ -5,6 +5,7 @@ project(armor_detector)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
 ## By adding -Wall and -Werror, the compiler does not ignore warnings anymore,
 ## enforcing cleaner code.
 add_definitions(-Wall -Werror)
@@ -64,5 +65,6 @@ endif()
 
 ament_auto_package(
   INSTALL_TO_SHARE
+  config
   model
 )

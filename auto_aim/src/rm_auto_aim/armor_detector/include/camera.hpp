@@ -1,24 +1,17 @@
-// camera_core.hpp
 #pragma once
-
 #include <cv_bridge/cv_bridge.h>
 
 #include <camera_info_manager/camera_info_manager.hpp>
-#include <chrono>
 #include <hikcamera/image_capturer.hpp>
-#include <memory>
-#include <rcl_interfaces/msg/set_parameters_result.hpp>
-#include <rclcpp/callback_group.hpp>
-#include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
-#include <thread>
 
+
+#include <string>
 namespace camera
 {
-enum DoubleEnd { LEFT = 0, RIGHT = 1, DoubleEndMax = 2 };
 
-struct Params
+struct HikCameraParams
 {
   int rate;  // hz
   std::string left_camera_name;
@@ -28,7 +21,7 @@ struct Params
   hikcamera::ImageCapturer::CameraProfile left_camera_profile;
   hikcamera::ImageCapturer::CameraProfile right_camera_profile;
 
-  explicit Params(rclcpp::Node * node)
+  explicit HikCameraParams(rclcpp::Node * node)
   {
     rcl_interfaces::msg::ParameterDescriptor desc;
     desc.read_only = true;
@@ -37,7 +30,7 @@ struct Params
     left_camera_name =
       node->declare_parameter("left.name", "left_camera", desc);
     left_cam_info_url = node->declare_parameter(
-      "left.cam_info_url", "package://camera_core/config/left_cam_info.yaml",
+      "left.cam_info_url", "package://rm_vision_bringup/config/camera_info_left.yaml",
       desc);
     {
       int exp_us =
@@ -56,7 +49,7 @@ struct Params
     right_camera_name =
       node->declare_parameter("right.name", "right_camera", desc);
     right_cam_info_url = node->declare_parameter(
-      "right.cam_info_url", "package://camera_core/config/right_cam_info.yaml",
+      "right.cam_info_url", "package://rm_vision_bringup/config/camera_info_right.yaml",
       desc);
     {
       int exp_us =
@@ -74,48 +67,4 @@ struct Params
       std::clamp(right_camera_profile.gain, 0.0f, 16.0f);
   }
 };
-
-struct Publishers
-{
-  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub[DoubleEndMax];
-  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr
-    cam_info_pub[DoubleEndMax];
-
-  explicit Publishers(rclcpp::Node * node)
-  {
-    auto sensor_qos = rclcpp::QoS(rclcpp::KeepLast(1))
-                        .reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT)
-                        .durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
-
-    image_pub[LEFT] = node->create_publisher<sensor_msgs::msg::Image>(
-      "/left/image_raw", sensor_qos);
-    image_pub[RIGHT] = node->create_publisher<sensor_msgs::msg::Image>(
-      "/right/image_raw", sensor_qos);
-
-    cam_info_pub[LEFT] = node->create_publisher<sensor_msgs::msg::CameraInfo>(
-      "/left/cam_info", 10);
-    cam_info_pub[RIGHT] = node->create_publisher<sensor_msgs::msg::CameraInfo>(
-      "/right/cam_info", 10);
-  }
-};
-
-class CameraCore final : public rclcpp::Node
-{
-public:
-  explicit CameraCore(const rclcpp::NodeOptions & options);
-  ~CameraCore();
-
-private:
-  void cameraLoop(DoubleEnd de);
-  void captureAndPub(DoubleEnd de);
-
-  Params params_;
-  Publishers pubs_;
-
-  std::unique_ptr<hikcamera::ImageCapturer> camera_[DoubleEndMax];
-  std::unique_ptr<camera_info_manager::CameraInfoManager>
-    cam_info_manager_[DoubleEndMax];
-  std::thread capture_thread_[DoubleEndMax];
-};
-
-}  // namespace camera
+} // namespace camera

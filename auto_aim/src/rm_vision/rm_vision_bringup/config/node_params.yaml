@@ -1,21 +1,3 @@
-/camera_core:
-  ros__parameters:
-    rate: 1000
-    left:
-      name: "left_camera"
-      cam_info_url: "package://rm_vision_bringup/config/camera_info_left.yaml"
-      exposure_time: 8000 # ms
-      gain: 10.0
-      invert: true
-      trigger_mode: false
-    right:
-      name: "right_camera"
-      cam_info_url: "package://rm_vision_bringup/config/camera_info_right.yaml"
-      exposure_time: 8000 # ms
-      gain: 10.0
-      invert: true
-      trigger_mode: false
-
 /rm_serial_driver:
   ros__parameters:
     is_debug: false
@@ -37,6 +19,21 @@
 /armor_detector:
   ros__parameters:
     debug: true
+    rate: 200
+    left:
+      name: "left_camera"
+      cam_info_url: "package://rm_vision_bringup/config/camera_info_left.yaml"
+      exposure_time: 8000 # ms
+      gain: 5.0
+      invert: true
+      trigger_mode: false
+    right:
+      name: "right_camera"
+      cam_info_url: "package://rm_vision_bringup/config/camera_info_right.yaml"
+      exposure_time: 8000 # ms
+      gain: 5.0
+      invert: true
+      trigger_mode: false
 
     detect_color: 0
     binary_thres: 126

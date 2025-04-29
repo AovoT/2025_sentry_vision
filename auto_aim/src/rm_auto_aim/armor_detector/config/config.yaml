@@ -1,17 +1,17 @@
-/camera_core:
+/armor_detector:
   ros__parameters:
     rate: 180
     left:
       name: "left_camera"
-      cam_info_url: "package://camera_core/config/left_cam_info.yaml"
-      exposure_time: 4000.0 # ms
+      cam_info_url: "package://armor_detector/config/left_cam_info.yaml"
+      exposure_time: 8000 # ms
       gain: 5.0
       invert: false
       trigger_mode: false
     right:
       name: "right_camera"
-      cam_info_url: "package://camera_core/config/right_cam_info.yaml"
-      exposure_time: 4000.0 # ms
+      cam_info_url: "package://armor_detector/config/right_cam_info.yaml"
+      exposure_time: 8000 # ms
       gain: 5.0
       invert: false
       trigger_mode: false

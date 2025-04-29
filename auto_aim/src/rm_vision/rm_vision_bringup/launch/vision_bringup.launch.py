@@ -10,7 +10,7 @@ from ament_index_python.packages import get_package_share_directory as gpsd
 sys.path.append(os.path.join(gpsd('rm_vision_bringup'), 'launch'))
 
 def generate_launch_description():
-    from node_desc import camera_node, detector_node, tracker_node, serial_node, rsp_component
+    from node_desc import detector_node, tracker_node, serial_node, rsp_component
 
     container = ComposableNodeContainer(
         name='vision_container',
@@ -18,7 +18,6 @@ def generate_launch_description():
         package='rclcpp_components',
         executable='component_container_mt',
         composable_node_descriptions=[
-            camera_node,
             detector_node,
             serial_node,
             tracker_node,
