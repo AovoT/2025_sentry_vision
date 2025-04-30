@@ -50,12 +50,11 @@ cv::Mat Detector::preprocessImage(const cv::Mat & rgb_img)
   return binary_img;
 }
 
-std::vector<Light> Detector::findLights(const cv::Mat & rbg_img, const cv::Mat & binary_img)
+std::vector<Light> Detector::findLights(const cv::Mat & bgr_img, const cv::Mat & binary_img)
 {
   using std::vector;
   vector<vector<cv::Point>> contours;
-  vector<cv::Vec4i> hierarchy;
-  cv::findContours(binary_img, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
+  cv::findContours(binary_img, contours, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_SIMPLE);
 
   vector<Light> lights;
   this->debug_lights.data.clear();
@@ -69,17 +68,17 @@ std::vector<Light> Detector::findLights(const cv::Mat & rbg_img, const cv::Mat &
     if (isLight(light)) {
       auto rect = light.boundingRect();
       if (  // Avoid assertion failed
-        0 <= rect.x && 0 <= rect.width && rect.x + rect.width <= rbg_img.cols && 0 <= rect.y &&
-        0 <= rect.height && rect.y + rect.height <= rbg_img.rows) {
+        0 <= rect.x && 0 <= rect.width && rect.x + rect.width <= bgr_img.cols && 0 <= rect.y &&
+        0 <= rect.height && rect.y + rect.height <= bgr_img.rows) {
         int sum_r = 0, sum_b = 0;
-        auto roi = rbg_img(rect);
+        auto roi = bgr_img(rect);
         // Iterate through the ROI
         for (int i = 0; i < roi.rows; i++) {
           for (int j = 0; j < roi.cols; j++) {
             if (cv::pointPolygonTest(contour, cv::Point2f(j + rect.x, i + rect.y), false) >= 0) {
               // if point is inside contour
-              sum_r += roi.at<cv::Vec3b>(i, j)[0];
-              sum_b += roi.at<cv::Vec3b>(i, j)[2];
+              sum_r += roi.at<cv::Vec3b>(i, j)[2];
+              sum_b += roi.at<cv::Vec3b>(i, j)[0];
             }
           }
         }

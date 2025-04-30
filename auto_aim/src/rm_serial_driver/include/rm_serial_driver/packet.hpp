@@ -112,5 +112,25 @@ inline void print(const ReceiveImuData &imu)
   std::cout.copyfmt(old_state);                   // 恢复原格式
 }
 
+inline void print(const SendVisionData &pkt)
+{
+  printf("=== SendVisionData ===\n");
+  printf("Header ID     : 0x%02X\n", pkt.frame_header.id);
+  printf("Timestamp     : %u\n", pkt.time_stamp);
+  printf("Tracking      : %u\n", pkt.data.tracking);
+  printf("Target ID     : %u\n", pkt.data.id);
+  printf("Armors Num    : %u\n", pkt.data.armors_num);
+  printf("Position      : (x: %.2f, y: %.2f, z: %.2f)\n",
+         pkt.data.x, pkt.data.y, pkt.data.z);
+  printf("Yaw           : %.2f deg\n", pkt.data.yaw);
+  printf("Velocity      : (vx: %.2f, vy: %.2f, vz: %.2f)\n",
+         pkt.data.vx, pkt.data.vy, pkt.data.vz);
+  printf("Yaw Velocity  : %.2f deg/s\n", pkt.data.v_yaw);
+  printf("Radius        : (r1: %.2f, r2: %.2f)\n", pkt.data.r1, pkt.data.r2);
+  printf("Height offset : dz = %.2f\n", pkt.data.dz);
+  printf("Checksum      : 0x%04X\n", pkt.checksum);
+  printf("=======================\n");
+}
+
 
 }  // namespace rm_serial_driver

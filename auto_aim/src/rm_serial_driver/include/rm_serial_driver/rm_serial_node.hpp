@@ -93,6 +93,7 @@ private:
   uint8_t data_buf_[DOUBLE_END_MAX][BUFFER_SIZE];
 
   void receiveLoop(DoubleEnd end);
+  void openPortWithRetry(DoubleEnd de);
   void handlePacket(const ReceiveImuData & pkt, DoubleEnd end);
   void handlePacket(const ReceiveTargetInfoData & pkt, DoubleEnd end);
 };

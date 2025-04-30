@@ -1,14 +1,15 @@
 #include "rm_serial_driver/rm_serial_node.hpp"
 
-#include <rclcpp/logging.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_ros/buffer_interface.h>
 #include <tf2_ros/transform_listener.h>
 
 #include <auto_aim_interfaces/msg/detail/tracker_info__struct.hpp>
+#include <exception>
+#include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2/time.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include "rm_serial_driver/packet.hpp"
 
@@ -41,7 +42,7 @@ Params::Params(rclcpp::Node * node)
   config[RIGHT].stop_bits = declare(node, "right.stop_bits", 1);
   config[RIGHT].timeout_ms = declare(node, "right.timeout_ms", 1000);
 
-  is_debug = declare(node, "is_debug", false);
+  is_debug = declare(node, "debug", false);
 }
 
 // Publishers implementation
@@ -127,12 +128,30 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions & opts)
     0x01, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::RIGHT); });
   serial_parser_[RIGHT]->registerHandler<ReceiveTargetInfoData>(
     0x09, [this](auto & pkt) { handlePacket(pkt, DoubleEnd::RIGHT); });
-  port_[LEFT] = std::make_shared<SerialPort>(params_.config[LEFT]);
-  port_[RIGHT] = std::make_shared<SerialPort>(params_.config[RIGHT]);
-  port_[LEFT]->open();
-  port_[RIGHT]->open();
+  port_[LEFT] = std::make_unique<SerialPort>(params_.config[LEFT]);
+  port_[RIGHT] = std::make_unique<SerialPort>(params_.config[RIGHT]);
+  this->openPortWithRetry(LEFT);
+  this->openPortWithRetry(RIGHT);
   thread_[LEFT] = std::thread([this] { receiveLoop(DoubleEnd::LEFT); });
   thread_[RIGHT] = std::thread([this] { receiveLoop(DoubleEnd::RIGHT); });
+}
+
+// === 新增: 打开串口并自动重连 ===
+void RMSerialDriver::openPortWithRetry(DoubleEnd de)
+{
+  const char * which = (de == LEFT ? "left" : "right");
+  while (rclcpp::ok()) {
+    try {
+      port_[de]->open();
+      RCLCPP_INFO(get_logger(), "%s serial port opened", which);
+      return;  // 成功 → 直接返回
+    } catch (const std::exception & e) {
+      RCLCPP_WARN(
+        get_logger(), "%s serial open failed: %s; retry in 1 s …", which,
+        e.what());
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+  }
 }
 
 RMSerialDriver::~RMSerialDriver()
@@ -150,34 +169,21 @@ void RMSerialDriver::receiveLoop(DoubleEnd de)
     ssize_t n = port_[de]->read(data_buf_[de], BUFFER_SIZE);
     if (n > 0) {
       serial_parser_[de]->feed(data_buf_[de], static_cast<size_t>(n));
-    } 
-    else if (n == 0 || (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    } 
-    else {
-      RCLCPP_ERROR(
-        get_logger(), "%s port read error (%s), 尝试重连…",
-        end_str.c_str(), std::strerror(errno));
-
-      // 1. 关闭并清理
+    } else if (n == 0) {
+      // EOF: 对端关闭，设备可能掉了
+      RCLCPP_WARN(
+        get_logger(), "%s port returned 0 (EOF), 尝试重连…", end_str.c_str());
       port_[de]->close();
-      port_[de].reset();
-
-      // 2. 重连尝试
-      while (rclcpp::ok()) {
-        try {
-          port_[de] = std::make_shared<SerialPort>(params_.config[de]);
-          RCLCPP_INFO(get_logger(), "%s 端口重连成功", end_str.c_str());
-          break;
-        } catch (const std::exception &e) {
-          RCLCPP_WARN(
-            get_logger(), "%s 端口重连失败：%s，1s后重试",
-            end_str.c_str(), e.what());
-          std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-      }
-
-      // 重连成功后，继续读数据
+      openPortWithRetry(de);
+    } else if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      // 非阻塞模式下没数据，跳过
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    } else {
+      RCLCPP_ERROR(
+        get_logger(), "%s port read error (%s), 尝试重连…", end_str.c_str(),
+        std::strerror(errno));
+      port_[de]->close();
+      openPortWithRetry(de);
     }
   }
 }
@@ -187,9 +193,11 @@ void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
   tf2::Quaternion q;
   q.setRPY(pkt.data.roll, pkt.data.pitch, pkt.data.yaw);
   q.normalize();
-  if (params_.is_debug) {
-    std::cout << "roll:" << pkt.data.roll << " pitch: " << pkt.data.pitch
-              << " yaw: " << pkt.data.yaw << std::endl;
+  if (
+    std::isnan(q.x()) || std::isnan(q.y()) || std::isnan(q.z()) ||
+    std::isnan(q.w())) {
+    RCLCPP_WARN(get_logger(), "roll, pitch or yaw is invalid nan");
+    return;
   }
   geometry_msgs::msg::TransformStamped t;
   t.header.stamp = now();
@@ -201,9 +209,14 @@ void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
   t.transform.rotation = tf2::toMsg(q);
   pubs_.tf_broadcaster.sendTransform(t);
 }
+
 void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
 {
-  DoubleEnd de = msg->gimbal_side_flag == 0 ? LEFT : RIGHT;
+  std::map<std::string, int> name_to_id = {
+    {"", 0},  {"1", 1},       {"2", 2},     {"3", 3},    {"4", 4},
+    {"5", 5}, {"outpost", 6}, {"guard", 7}, {"base", 8},
+  };
+
   bool is_valid = msg->header.frame_id == "odom";
   if (!is_valid) {
     RCLCPP_WARN(
@@ -211,17 +224,19 @@ void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
       msg->header.frame_id.c_str());
     return;
   }
-  if (params_.is_debug) {
-    RCLCPP_INFO(
-      get_logger(), "yaw: %.2f", std::atan2(msg->position.x, msg->position.y));
-  }
-  // 1. 填充基础数据包（直接用 odom 坐标）
+
+  // ========== 准备共用的基础数据 ==========
   SendVisionData base_pkt{};
+  base_pkt.frame_header.sof = 0x5A;
+  base_pkt.frame_header.id = 0x03;
+  base_pkt.time_stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          std::chrono::steady_clock::now().time_since_epoch())
+                          .count();
+
   auto & d = base_pkt.data;
   d.tracking = msg->tracking;
-  d.x = msg->position.x;
-  d.y = msg->position.y;
-  d.z = msg->position.z;
+  d.armors_num = msg->armors_num;
+  d.id = name_to_id[msg->id];
   d.yaw = msg->yaw;
   d.vx = msg->velocity.x;
   d.vy = msg->velocity.y;
@@ -231,27 +246,58 @@ void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
   d.r2 = msg->radius_2;
   d.dz = msg->dz;
 
-  // 2. 准备待变换的 PointStamped
+  // ========== 准备待转换点 ==========
   geometry_msgs::msg::PointStamped pt_in;
   pt_in.header = msg->header;
-  pt_in.point.x = d.x;
-  pt_in.point.y = d.y;
-  pt_in.point.z = d.z;
-  std::string target_frame = de == LEFT ? "gimbal_left_link_offset" : "gimbal_right_link_offset";
-  geometry_msgs::msg::PointStamped pt_out;
-  pt_out.header = pt_in.header;
-  pt_in.header.stamp = rclcpp::Time(0);
-  pt_out = subs_.tf_buffer->transform(pt_in, target_frame, tf2::durationFromSec(0.1));
-  // 4. 打包并发到对应串口
-  base_pkt.frame_header.id = 0x03;
-  auto buf = pack(base_pkt);
-  if (static_cast<ssize_t>(port_[de]->write(buf.data(), buf.size())) < 0) {
-    RCLCPP_WARN(get_logger(), "Failed to send vision data to %s port", de == LEFT ? "left" : "right");
+  pt_in.point.x = msg->position.x;
+  pt_in.point.y = msg->position.y;
+  pt_in.point.z = msg->position.z;
+  pt_in.header.stamp = rclcpp::Time(0);  // 使用最新 TF
+
+  // ========== 转换 & 发送左右各自的包 ==========
+  const std::array<DoubleEnd, 2> ends = {LEFT, RIGHT};
+  const std::array<const char *, 2> frames = {
+    "gimbal_left_link_offset", "gimbal_right_link_offset"};
+
+  for (int i = 0; i < 2; ++i) {
+    DoubleEnd de = ends[i];
+    const char * frame = frames[i];
+
+    geometry_msgs::msg::PointStamped pt_out;
+    try {
+      pt_out =
+        subs_.tf_buffer->transform(pt_in, frame, tf2::durationFromSec(0.1));
+    } catch (const tf2::TransformException & ex) {
+      RCLCPP_WARN(
+        get_logger(), "TF transform to %s failed: %s", frame, ex.what());
+      continue;
+    }
+
+    SendVisionData pkt = base_pkt;
+    pkt.data.x = pt_out.point.x;
+    pkt.data.y = pt_out.point.y;
+    pkt.data.z = pt_out.point.z;
+
+    auto buf = pack(pkt);
+    if (params_.is_debug) {
+      RCLCPP_INFO(
+        get_logger(), "%s port debug info", de == LEFT ? "left" : "right");
+      print(pkt);
+    }
+
+    if (static_cast<ssize_t>(port_[de]->write(buf.data(), buf.size())) < 0) {
+      RCLCPP_WARN(
+        get_logger(), "Failed to send vision data to %s port",
+        de == LEFT ? "left" : "right");
+    }
   }
 }
+
 void RMSerialDriver::handlePacket(
   const ReceiveTargetInfoData & pkt, DoubleEnd de)
 {
+  (void)pkt;
+  (void)de;
 }
 }  // namespace rm_serial_driver
 

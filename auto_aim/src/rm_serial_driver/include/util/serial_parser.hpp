@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 #include <deque>
 #include <functional>
 #include <rclcpp/rclcpp.hpp>
@@ -38,47 +39,41 @@ struct has_checksum_field<T, std::void_t<decltype(std::declval<T>().checksum)>>
 {
 };
 
-// pack: 先算帧头 CRC8，再算整包 CRC16 小端追加
-template <typename Packet>
-std::vector<uint8_t> pack(const Packet & pkt_in)
+std::vector<uint8_t> pack(SendVisionData & src_input)
 {
-  // 复制一份，以便改写 header 字段
-  Packet pkt = pkt_in;
+  constexpr size_t HEADER_SIZE = sizeof(HeaderFrame);
+  constexpr size_t TIME_SIZE = sizeof(uint32_t);
+  constexpr size_t DATA_SIZE = sizeof(src_input.data);
+  constexpr size_t CRC16_SIZE = sizeof(uint16_t);
+  constexpr size_t TOTAL_SIZE =
+    HEADER_SIZE + TIME_SIZE + DATA_SIZE + CRC16_SIZE;
+  src_input.frame_header.sof = 0x5A;
 
-  // —— 1) 设置 header 字段 ——
-  // SOF
-  pkt.frame_header.sof = 0x5A;
-  // payload 长度（字节数）
-  pkt.frame_header.len = static_cast<uint8_t>(sizeof(pkt.data));
-  // id 由外部 pkt_in.frame_header.id 提供，pack 不改动它
 
-  // 计算 CRC8（仅对 sof, len, id 三字节，seed = 0xFF）
-  {
-    uint8_t tmp[3] = {
-      pkt.frame_header.sof, pkt.frame_header.len, pkt.frame_header.id};
-    pkt.frame_header.crc =
-      crc8::get_CRC8_check_sum(tmp, /*len=*/3, /*seed=*/0xFF);
-  }
+  std::vector<uint8_t> buf(TOTAL_SIZE);
+  uint8_t * ptr = buf.data();
 
-  // —— 2) 拼接 header + payload ——
-  std::vector<uint8_t> buf;
-  buf.reserve(/*header*/ 4 + /*data*/ sizeof(pkt.data) + /*CRC16*/ 2);
+  // 拷贝 src 结构并生成新副本（因为我们要改 len 和 CRC）
+  SendVisionData src = src_input;
 
-  // 手工推入 4 字节 header，避免任何 padding
-  buf.push_back(pkt.frame_header.sof);
-  buf.push_back(pkt.frame_header.len);
-  buf.push_back(pkt.frame_header.id);
-  buf.push_back(pkt.frame_header.crc);
+  // === 1. 自动填 len ===
+  src.frame_header.len = TIME_SIZE + DATA_SIZE + CRC16_SIZE;
 
-  // 推入 payload
-  const uint8_t * pd = reinterpret_cast<const uint8_t *>(&pkt.data);
-  buf.insert(buf.end(), pd, pd + sizeof(pkt.data));
+  // === 2. 拷贝 Header (sof, len, id) 到前 3 字节，暂不填 crc ===
+  std::memcpy(ptr, &src.frame_header, HEADER_SIZE);
 
-  // —— 3) 计算 CRC16（对上面所有字节，seed = 0xFFFF）并以小端追加 ——
+  // === 3. 计算 Header 的 CRC8（作用于 sof + len + id）===
+  ptr[3] = crc8::get_CRC8_check_sum(ptr, 3, 0xFF);  // 填入 header.crc
+
+  // === 4. 拷贝 time_stamp 和 data 到缓冲区 ===
+  std::memcpy(ptr + HEADER_SIZE, &src.time_stamp, TIME_SIZE);
+  std::memcpy(ptr + HEADER_SIZE + TIME_SIZE, &src.data, DATA_SIZE);
+
+  // === 5. 计算 CRC16（除末尾 checksum 外的所有字节） ===
   uint16_t crc16_val =
-    crc16::get_CRC16_check_sum(buf.data(), buf.size(), /*seed=*/0xFFFF);
-  buf.push_back(static_cast<uint8_t>(crc16_val & 0xFF));
-  buf.push_back(static_cast<uint8_t>((crc16_val >> 8) & 0xFF));
+    crc16::get_CRC16_check_sum(ptr, TOTAL_SIZE - CRC16_SIZE, 0xFFFF);
+  std::memcpy(
+    ptr + TOTAL_SIZE - CRC16_SIZE, &crc16_val, CRC16_SIZE);  // 写入尾部
 
   return buf;
 }

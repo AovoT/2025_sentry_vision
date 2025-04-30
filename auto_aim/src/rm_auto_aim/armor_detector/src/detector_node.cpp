@@ -12,6 +12,7 @@
 #include <sensor_msgs/msg/detail/camera_info__struct.hpp>
 #include <std_msgs/msg/detail/header__struct.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+
 #include "armor_detector/pnp_solver.hpp"
 
 namespace rm_auto_aim
@@ -53,6 +54,8 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   auto right_ci = cam_info_manager_.getCameraInfo();
   pnp_solver_[LEFT] = std::make_shared<PnPSolver>(left_ci.k, left_ci.d);
   pnp_solver_[RIGHT] = std::make_shared<PnPSolver>(right_ci.k, right_ci.d);
+  cam_center_[LEFT] = cv::Point2f(left_ci.k[2], left_ci.k[5]);
+  cam_center_[RIGHT] = cv::Point2f(right_ci.k[2], right_ci.k[5]);
 
   param_cb_handle_ = add_on_set_parameters_callback(std::bind(
     &ArmorDetectorNode::onParametersSet, this, std::placeholders::_1));
@@ -100,22 +103,22 @@ void ArmorDetectorNode::createDebugPublishers()
     this->create_publisher<auto_aim_interfaces::msg::DebugArmors>(
       "/detector/debug_armors", 10);
 
-  debug_pubs_->binary[LEFT] = image_transport::create_publisher(this, "/detector/left/binary_img");
-  debug_pubs_->binary[RIGHT] = image_transport::create_publisher(this, "/detector/right/binary_img");
-  debug_pubs_->img_raw[LEFT] = image_transport::create_publisher(this, "/left/image_raw");
-  debug_pubs_->img_raw[RIGHT] = image_transport::create_publisher(this, "/right/image_raw");
-  debug_pubs_->numbers = image_transport::create_publisher(this, "/detector/number_img");
-  debug_pubs_->result = image_transport::create_publisher(this, "/detector/result_img");
-
-
   debug_pubs_->binary[LEFT] =
     image_transport::create_publisher(this, "/detector/left/binary_img");
   debug_pubs_->binary[RIGHT] =
     image_transport::create_publisher(this, "/detector/right/binary_img");
-  debug_pubs_->numbers =
-    image_transport::create_publisher(this, "/detector/number_img");
-  debug_pubs_->result =
-    image_transport::create_publisher(this, "/detector/result_img");
+  debug_pubs_->img_raw[LEFT] =
+    image_transport::create_publisher(this, "/detector/left/image_raw");
+  debug_pubs_->img_raw[RIGHT] =
+    image_transport::create_publisher(this, "/detector/right/image_raw");
+  debug_pubs_->numbers[LEFT] =
+    image_transport::create_publisher(this, "/detector/left/number_img");
+  debug_pubs_->numbers[RIGHT] =
+    image_transport::create_publisher(this, "/detector/right/number_img");
+  debug_pubs_->result[LEFT] =
+    image_transport::create_publisher(this, "/detector/left/result_img");
+  debug_pubs_->result[RIGHT] =
+    image_transport::create_publisher(this, "/detector/right/result_img");
 }
 
 void ArmorDetectorNode::destroyDebugPublishers()
@@ -123,9 +126,9 @@ void ArmorDetectorNode::destroyDebugPublishers()
   for (int i = 0; i < DOUBLE_END_MAX; i++) {
     debug_pubs_->binary[i].shutdown();
     debug_pubs_->img_raw[i].shutdown();
+    debug_pubs_->numbers[i].shutdown();
+    debug_pubs_->result[i].shutdown();
   }
-  debug_pubs_->numbers.shutdown();
-  debug_pubs_->result.shutdown();
   debug_pubs_.reset();
 }
 
@@ -133,19 +136,25 @@ bool ArmorDetectorNode::shouldDetect(DoubleEnd de)
 {
   std::lock_guard lk(find_mutex_);
 
-  // ① 没人占 → 可以检测
-  if (owner_ == -1) return true;
+  const int me = static_cast<int>(de);
+  const int other = 1 - me;  // 双目只有 0/1 两端
+  const bool no_one = (owner_ == -1);
 
-  // ② 我是 owner
-  if (owner_ == static_cast<int>(de)) {
-      if (miss_count_[de] < K_MISS_TOLERANCE) return true;   // 继续独占
-      // 超过容忍 → 让渡所有权
-      owner_ = -1;
-      miss_count_[de] = K_MISS_TOLERANCE;   // 防止刚放手又被判断 <K
-      return false;                         // 本轮先休息一帧
+  /* 1. 没人持有 → 我可以检测 */
+  if (no_one) return true;
+
+  /* 2. 我是当前 owner → 继续检测 */
+  if (owner_ == me) return true;
+
+  /* 3. 对方是 owner，但已连续丢失 K 帧 → 释放占用，抢过来 */
+  if (miss_count_[other] >= K_MISS_TOLERANCE) {
+    owner_ = -1;  // 先清空再由主循环下一轮重新竞争
+    return true;  // 本帧我就开始检测
   }
 
-  // ③ 别人是 owner → 我不检测
+  /* 4. 其余情况：让对方专心检测，同时给自己累加 miss 计数，以免溢出 */
+  if (miss_count_[me] < K_MISS_TOLERANCE) ++miss_count_[me];
+
   return false;
 }
 
@@ -177,10 +186,36 @@ void ArmorDetectorNode::handleOnce(DoubleEnd de)
       RCLCPP_ERROR(get_logger(), "debug_pubs_ is null when debug enabled!");
     }
   }
-  auto armors = detectArmors(raw_img, de);
+  auto armors = detector_[de]->detect(raw_img);
   bool found = !armors.empty();
   {  // Update ownership and miss count
     std::lock_guard lock(find_mutex_);
+    if (debug_enabled_) {
+      std::shared_ptr<DebugPublishers> dbg;
+      {
+        std::lock_guard lock(debug_mutex_);
+        dbg = debug_pubs_;
+      }
+      cv::Mat dbg_img = raw_img.clone();
+      std_msgs::msg::Header hdr;
+      hdr.stamp = this->now();
+      hdr.frame_id =
+        de == LEFT ? "left_camera_optical_frame" : "right_camera_optical_frame";
+      dbg->binary[de].publish(
+        cv_bridge::CvImage(hdr, "mono8", detector_[de]->binary_img)
+          .toImageMsg());
+      dbg->lights->publish(detector_[de]->debug_lights);
+      dbg->armors->publish(detector_[de]->debug_armors);
+      dbg->numbers[de].publish(*cv_bridge::CvImage(
+                              std_msgs::msg::Header(), "mono8",
+                              detector_[de]->getAllNumbersImage())
+                              .toImageMsg());
+      // Draw on image & publish result
+      detector_[de]->drawResults(dbg_img);
+      cv::circle(dbg_img, cam_center_[de], 5, cv::Scalar(255, 0, 0), 2);
+      dbg->result[de].publish(
+        cv_bridge::CvImage(hdr, "bgr8", dbg_img).toImageMsg());
+    }
     if (found) {
       if (owner_ == -1) owner_ = static_cast<int>(de);
       if (owner_ == static_cast<int>(de)) miss_count_[de] = 0;
@@ -232,46 +267,12 @@ void ArmorDetectorNode::initDetectors()
   auto ignore_classes =
     declare_parameter("ignore_classes", std::vector<std::string>{"negative"});
 
-  for (int i = 0; i < DOUBLE_END_MAX; ++i) {
-    detector_[i] = std::make_unique<Detector>(
+  for (auto & detct : detector_) {
+    detct = std::make_unique<Detector>(
       binary_thres, detect_color, l_params, a_params);
-    detector_[i]->classifier = std::make_unique<NumberClassifier>(
+    detct->classifier = std::make_unique<NumberClassifier>(
       model_path, label_path, threshold, ignore_classes);
   }
-}
-
-std::vector<Armor> ArmorDetectorNode::detectArmors(
-  const cv::Mat & cvimg, DoubleEnd de)
-{
-  auto res = detector_[de]->detect(cvimg);
-
-  if (debug_enabled_ && !res.empty()) {
-    std::shared_ptr<DebugPublishers> dbg;
-    {
-      std::lock_guard lock(debug_mutex_);
-      dbg = debug_pubs_;
-    }
-    if (dbg) {
-      cv::Mat dbg_img = cvimg.clone();
-      std_msgs::msg::Header hdr;
-      hdr.stamp = this->now();
-      hdr.frame_id =
-        de == LEFT ? "left_camera_optical_frame" : "right_camera_optical_frame";
-      dbg->binary[de].publish(
-        cv_bridge::CvImage(hdr, "mono8", detector_[de]->binary_img).toImageMsg());
-      dbg->lights->publish(detector_[de]->debug_lights);
-      dbg->armors->publish(detector_[de]->debug_armors);
-      dbg->numbers.publish(
-        *cv_bridge::CvImage(
-           std_msgs::msg::Header(), "mono8", detector_[de]->getAllNumbersImage())
-           .toImageMsg());
-      // Draw on image & publish result
-      detector_[de]->drawResults(dbg_img);
-      cv::circle(cvimg, cam_center_[de], 5, cv::Scalar(255, 0, 0), 2);
-      dbg->result.publish(cv_bridge::CvImage(hdr, "bgr8", dbg_img).toImageMsg());
-    }
-  }
-  return res;
 }
 
 void ArmorDetectorNode::publishArmorsAndMarkers(

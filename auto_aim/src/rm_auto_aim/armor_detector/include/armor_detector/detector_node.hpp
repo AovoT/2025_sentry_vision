@@ -35,8 +35,8 @@ struct DebugPublishers
   rclcpp::Publisher<auto_aim_interfaces::msg::DebugLights>::SharedPtr lights;
   rclcpp::Publisher<auto_aim_interfaces::msg::DebugArmors>::SharedPtr armors;
   image_transport::Publisher binary[DOUBLE_END_MAX];
-  image_transport::Publisher numbers;
-  image_transport::Publisher result;
+  image_transport::Publisher numbers[DOUBLE_END_MAX];
+  image_transport::Publisher result[DOUBLE_END_MAX];
   image_transport::Publisher img_raw[DOUBLE_END_MAX];
 };
 
@@ -52,7 +52,6 @@ private:
   bool shouldDetect(DoubleEnd de);  // now non-const to allow state update
 
   void initDetectors();
-  std::vector<Armor> detectArmors(const cv::Mat & img, DoubleEnd de);
   void publishArmorsAndMarkers(const std::vector<Armor> & armors, DoubleEnd de);
   rcl_interfaces::msg::SetParametersResult onParametersSet(
     const std::vector<rclcpp::Parameter> & params);
@@ -61,11 +60,9 @@ private:
   rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr armors_pub_;
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
     marker_pub_;
-  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr
-    img_sub_[DOUBLE_END_MAX];
 
   // Detection state
-  static constexpr int K_MISS_TOLERANCE = 10;
+  static constexpr int K_MISS_TOLERANCE = 5;
   bool last_find_[DOUBLE_END_MAX] = {false, false};
   int miss_count_[DOUBLE_END_MAX] = {K_MISS_TOLERANCE, K_MISS_TOLERANCE};
   int owner_ = -1;
@@ -82,7 +79,7 @@ private:
   std::unique_ptr<std::thread> loop_thread[DOUBLE_END_MAX];
 
   // Camera info
-  cv::Point2d cam_center_[DOUBLE_END_MAX];
+  cv::Point2f cam_center_[DOUBLE_END_MAX];
 
   // Debug
   std::atomic<bool> debug_enabled_{false};
