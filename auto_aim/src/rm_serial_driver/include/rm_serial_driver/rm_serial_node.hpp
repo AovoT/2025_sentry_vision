@@ -6,6 +6,7 @@
 #include <tf2_ros/transform_listener.h>
 
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
+#include <rclcpp/callback_group.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
@@ -39,8 +40,10 @@ struct Publishers
 
 struct Subscribers
 {
-  rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr target_sub;
+  rclcpp::Subscription<auto_aim_interfaces::msg::Target>::SharedPtr
+    target_sub[DOUBLE_END_MAX];
 
+  rclcpp::CallbackGroup::SharedPtr cb_group[DOUBLE_END_MAX];
   tf2_ros::Buffer::SharedPtr tf_buffer;
   std::shared_ptr<tf2_ros::TransformListener> tf_listener;
   explicit Subscribers(rclcpp::Node * node, RMSerialDriver * parent);
@@ -76,9 +79,18 @@ public:
   explicit RMSerialDriver(const rclcpp::NodeOptions & options);
   ~RMSerialDriver() override;
 
-  void handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg);
+  void handleLeftMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
+  {
+    handleMsg(msg, LEFT);
+  }
+
+  void handleRightMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
+  {
+    handleMsg(msg, RIGHT);
+  }
 
 private:
+  void handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg, DoubleEnd de);
   static constexpr int BUFFER_SIZE = 128;
   uint8_t prev_color_{0};
   std::thread thread_[DOUBLE_END_MAX];

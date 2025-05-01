@@ -5,8 +5,10 @@
 
 #include <auto_aim_interfaces/msg/detail/tracker_info__struct.hpp>
 #include <exception>
+#include <rclcpp/callback_group.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
+#include <rclcpp/subscription_options.hpp>
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2/time.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -51,11 +53,22 @@ Publishers::Publishers(rclcpp::Node * node) : tf_broadcaster(node) {}
 // Subscribers implementation
 Subscribers::Subscribers(rclcpp::Node * node, RMSerialDriver * parent)
 {
+  cb_group[LEFT] = node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  cb_group[RIGHT] = node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions options;
   tf_buffer = std::make_shared<tf2_ros::Buffer>(node->get_clock());
   tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
-  target_sub = node->create_subscription<auto_aim_interfaces::msg::Target>(
-    "/tracker/target", rclcpp::SensorDataQoS(),
-    std::bind(&RMSerialDriver::handleMsg, parent, std::placeholders::_1));
+  options.callback_group = cb_group[LEFT];
+  target_sub[LEFT] =
+    node->create_subscription<auto_aim_interfaces::msg::Target>(
+      "/tracker/left/target", rclcpp::SensorDataQoS(),
+      std::bind(&RMSerialDriver::handleLeftMsg, parent, std::placeholders::_1), options);
+  options.callback_group = cb_group[RIGHT];
+  target_sub[RIGHT] =
+    node->create_subscription<auto_aim_interfaces::msg::Target>(
+      "/tracker/right/target", rclcpp::SensorDataQoS(),
+      std::bind(
+        &RMSerialDriver::handleRightMsg, parent, std::placeholders::_1), options);
 }
 
 // Clients implementation
@@ -188,7 +201,7 @@ void RMSerialDriver::receiveLoop(DoubleEnd de)
   }
 }
 
-void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
+void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd de)
 {
   tf2::Quaternion q;
   q.setRPY(pkt.data.roll, pkt.data.pitch, pkt.data.yaw);
@@ -202,15 +215,16 @@ void RMSerialDriver::handlePacket(const ReceiveImuData & pkt, DoubleEnd end)
   geometry_msgs::msg::TransformStamped t;
   t.header.stamp = now();
   t.header.frame_id =
-    (end == DoubleEnd::LEFT ? "gimbal_left_link_offset"
-                            : "gimbal_right_link_offset");
+    (de == DoubleEnd::LEFT ? "gimbal_left_link_offset"
+                           : "gimbal_right_link_offset");
   t.child_frame_id =
-    (end == DoubleEnd::LEFT ? "gimbal_left_link" : "gimbal_right_link");
+    (de == DoubleEnd::LEFT ? "gimbal_left_link" : "gimbal_right_link");
   t.transform.rotation = tf2::toMsg(q);
   pubs_.tf_broadcaster.sendTransform(t);
 }
 
-void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
+void RMSerialDriver::handleMsg(
+  auto_aim_interfaces::msg::Target::SharedPtr msg, DoubleEnd de)
 {
   std::map<std::string, int> name_to_id = {
     {"", 0},  {"1", 1},       {"2", 2},     {"3", 3},    {"4", 4},
@@ -255,41 +269,33 @@ void RMSerialDriver::handleMsg(auto_aim_interfaces::msg::Target::SharedPtr msg)
   pt_in.header.stamp = rclcpp::Time(0);  // 使用最新 TF
 
   // ========== 转换 & 发送左右各自的包 ==========
-  const std::array<DoubleEnd, 2> ends = {LEFT, RIGHT};
-  const std::array<const char *, 2> frames = {
-    "gimbal_left_link_offset", "gimbal_right_link_offset"};
+  const char * left_frame = "gimbal_left_link_offset";
+  const char * right_frame = "gimbal_right_link_offset";
+  auto target_frame = de == LEFT ? left_frame : right_frame;
 
-  for (int i = 0; i < 2; ++i) {
-    DoubleEnd de = ends[i];
-    const char * frame = frames[i];
+  geometry_msgs::msg::PointStamped pt_out;
+  try {
+    pt_out =
+      subs_.tf_buffer->transform(pt_in, target_frame, tf2::durationFromSec(0.1));
+  } catch (const tf2::TransformException & ex) {
+    RCLCPP_WARN(
+      get_logger(), "TF transform to %s failed: %s", target_frame, ex.what());
+    return;
+  }
 
-    geometry_msgs::msg::PointStamped pt_out;
-    try {
-      pt_out =
-        subs_.tf_buffer->transform(pt_in, frame, tf2::durationFromSec(0.1));
-    } catch (const tf2::TransformException & ex) {
-      RCLCPP_WARN(
-        get_logger(), "TF transform to %s failed: %s", frame, ex.what());
-      continue;
-    }
+  SendVisionData pkt = base_pkt;
+  pkt.data.x = pt_out.point.x;
+  pkt.data.y = pt_out.point.y;
+  pkt.data.z = pt_out.point.z;
 
-    SendVisionData pkt = base_pkt;
-    pkt.data.x = pt_out.point.x;
-    pkt.data.y = pt_out.point.y;
-    pkt.data.z = pt_out.point.z;
+  auto buf = pack(pkt);
+  if (params_.is_debug) {
+    RCLCPP_INFO(get_logger(), "%s port debug info", de == LEFT ? "left" : "right");
+    print(pkt);
+  }
 
-    auto buf = pack(pkt);
-    if (params_.is_debug) {
-      RCLCPP_INFO(
-        get_logger(), "%s port debug info", de == LEFT ? "left" : "right");
-      print(pkt);
-    }
-
-    if (static_cast<ssize_t>(port_[de]->write(buf.data(), buf.size())) < 0) {
-      RCLCPP_WARN(
-        get_logger(), "Failed to send vision data to %s port",
-        de == LEFT ? "left" : "right");
-    }
+  if (static_cast<ssize_t>(port_[de]->write(buf.data(), buf.size())) < 0) {
+    RCLCPP_WARN(get_logger(), "Failed to send vision data to left port");
   }
 }
 

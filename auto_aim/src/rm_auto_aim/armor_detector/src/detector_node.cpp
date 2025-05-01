@@ -5,6 +5,8 @@
 #include <rmw/qos_profiles.h>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#include <auto_aim_interfaces/msg/detail/debug_armors__struct.hpp>
+#include <auto_aim_interfaces/msg/detail/debug_lights__struct.hpp>
 #include <hikcamera/image_capturer.hpp>
 #include <image_transport/image_transport.hpp>
 #include <memory>
@@ -35,12 +37,16 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
   initDetectors();
   RCLCPP_INFO(get_logger(), "Detector initialized.");
 
-  armors_pub_ = create_publisher<auto_aim_interfaces::msg::Armors>(
-    "/detector/armors", rclcpp::SensorDataQoS());
+  armors_pub_[LEFT] = create_publisher<auto_aim_interfaces::msg::Armors>(
+    "/detector/left/armors", rclcpp::SensorDataQoS());
+  armors_pub_[RIGHT] = create_publisher<auto_aim_interfaces::msg::Armors>(
+    "/detector/right/armors", rclcpp::SensorDataQoS());
   RCLCPP_INFO(get_logger(), "Armors publisher created.");
 
-  marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
-    "/detector/marker", rclcpp::QoS(10));
+  marker_pub_[LEFT] = create_publisher<visualization_msgs::msg::MarkerArray>(
+    "/detector/left/marker", rclcpp::QoS(10));
+  marker_pub_[RIGHT] = create_publisher<visualization_msgs::msg::MarkerArray>(
+    "/detector/right/marker", rclcpp::QoS(10));
   RCLCPP_INFO(get_logger(), "Marker publisher created.");
 
   // Parameter callback for dynamic updates
@@ -59,22 +65,26 @@ ArmorDetectorNode::ArmorDetectorNode(const rclcpp::NodeOptions & options)
 
   param_cb_handle_ = add_on_set_parameters_callback(std::bind(
     &ArmorDetectorNode::onParametersSet, this, std::placeholders::_1));
-  if (debug_enabled_) {
-    createDebugPublishers();
+  for (int i = 0; i < DOUBLE_END_MAX; i++) {
+    const char * end_str = i == LEFT ? "left" : "right";
+    if (debug_enabled_) {
+      debug_pubs_[i] =
+        std::make_shared<DebugPublishers>(this, static_cast<DoubleEnd>(i));
+    }
+    capture_thread[i] = std::make_unique<std::thread>([this, end_str, i]() {
+      RCLCPP_INFO(get_logger(), "%s capture loop thread running", end_str);
+      captureLoop(static_cast<DoubleEnd>(i));
+    });
+    detect_thread[i] = std::make_unique<std::thread>([this, end_str, i]() {
+      RCLCPP_INFO(get_logger(), "%s detect loop thread running", end_str);
+      detectLoop(static_cast<DoubleEnd>(i));
+    });
   }
-  loop_thread[LEFT] = std::make_unique<std::thread>([this]() {
-    RCLCPP_INFO(get_logger(), "left loop thread running");
-    mainLoop(LEFT);
-  });
-  loop_thread[RIGHT] = std::make_unique<std::thread>([this]() {
-    RCLCPP_INFO(get_logger(), "right loop thread running");
-    mainLoop(RIGHT);
-  });
 }
 
 ArmorDetectorNode::~ArmorDetectorNode()
 {
-  for (auto & thread : loop_thread) {
+  for (auto & thread : detect_thread) {
     if (thread && thread->joinable()) {
       thread->join();
       thread.reset();
@@ -83,148 +93,70 @@ ArmorDetectorNode::~ArmorDetectorNode()
   rclcpp::shutdown();
 }
 
-void ArmorDetectorNode::mainLoop(DoubleEnd de)
+void ArmorDetectorNode::detectLoop(DoubleEnd de)
 {
   while (rclcpp::ok()) {
-    handleOnce(de);
+    detectOnce(de);
     asm volatile("");
   }
 }
 
-void ArmorDetectorNode::createDebugPublishers()
+void ArmorDetectorNode::captureLoop(DoubleEnd de)
 {
-  if (!debug_pubs_) {
-    debug_pubs_ = std::make_shared<DebugPublishers>();
-  }
-  debug_pubs_->lights =
-    this->create_publisher<auto_aim_interfaces::msg::DebugLights>(
-      "/detector/debug_lights", 10);
-  debug_pubs_->armors =
-    this->create_publisher<auto_aim_interfaces::msg::DebugArmors>(
-      "/detector/debug_armors", 10);
-
-  debug_pubs_->binary[LEFT] =
-    image_transport::create_publisher(this, "/detector/left/binary_img");
-  debug_pubs_->binary[RIGHT] =
-    image_transport::create_publisher(this, "/detector/right/binary_img");
-  debug_pubs_->img_raw[LEFT] =
-    image_transport::create_publisher(this, "/detector/left/image_raw");
-  debug_pubs_->img_raw[RIGHT] =
-    image_transport::create_publisher(this, "/detector/right/image_raw");
-  debug_pubs_->numbers[LEFT] =
-    image_transport::create_publisher(this, "/detector/left/number_img");
-  debug_pubs_->numbers[RIGHT] =
-    image_transport::create_publisher(this, "/detector/right/number_img");
-  debug_pubs_->result[LEFT] =
-    image_transport::create_publisher(this, "/detector/left/result_img");
-  debug_pubs_->result[RIGHT] =
-    image_transport::create_publisher(this, "/detector/right/result_img");
-}
-
-void ArmorDetectorNode::destroyDebugPublishers()
-{
-  for (int i = 0; i < DOUBLE_END_MAX; i++) {
-    debug_pubs_->binary[i].shutdown();
-    debug_pubs_->img_raw[i].shutdown();
-    debug_pubs_->numbers[i].shutdown();
-    debug_pubs_->result[i].shutdown();
-  }
-  debug_pubs_.reset();
-}
-
-bool ArmorDetectorNode::shouldDetect(DoubleEnd de)
-{
-  std::lock_guard lk(find_mutex_);
-
-  const int me = static_cast<int>(de);
-  const int other = 1 - me;  // 双目只有 0/1 两端
-  const bool no_one = (owner_ == -1);
-
-  /* 1. 没人持有 → 我可以检测 */
-  if (no_one) return true;
-
-  /* 2. 我是当前 owner → 继续检测 */
-  if (owner_ == me) return true;
-
-  /* 3. 对方是 owner，但已连续丢失 K 帧 → 释放占用，抢过来 */
-  if (miss_count_[other] >= K_MISS_TOLERANCE) {
-    owner_ = -1;  // 先清空再由主循环下一轮重新竞争
-    return true;  // 本帧我就开始检测
-  }
-
-  /* 4. 其余情况：让对方专心检测，同时给自己累加 miss 计数，以免溢出 */
-  if (miss_count_[me] < K_MISS_TOLERANCE) ++miss_count_[me];
-
-  return false;
-}
-
-void ArmorDetectorNode::handleOnce(DoubleEnd de)
-{
-  if (!shouldDetect(de)) return;
-
-  if (!img_capture_[de]) [[unlikely]] {
-    RCLCPP_ERROR(get_logger(), "img_capture_[%d] is null!", (int)de);
-    return;
-  }
-
-  cv::Mat raw_img = img_capture_[de]->read();
-  if (raw_img.empty()) {
-    RCLCPP_WARN(get_logger(), "Captured empty image from camera %d", (int)de);
-    return;
-  }
-  if (debug_enabled_) {
-    std::shared_ptr<DebugPublishers> dbg;
-    {
-      std::lock_guard lock(debug_mutex_);
-      dbg = debug_pubs_;
+  while (rclcpp::ok()) {
+    if (!img_capture_[de]) [[unlikely]] {
+      RCLCPP_ERROR(get_logger(), "img_capture_[%d] is null!", (int)de);
+      return;
     }
-    if (dbg) {
-      dbg->img_raw[de].publish(
-        *cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", raw_img)
-           .toImageMsg());
-    } else {
-      RCLCPP_ERROR(get_logger(), "debug_pubs_ is null when debug enabled!");
+
+    cv::Mat raw_img = img_capture_[de]->read();
+    if (raw_img.empty()) [[unlikely]] {
+      RCLCPP_WARN(get_logger(), "Captured empty image from camera %d", (int)de);
+      return;
     }
+    if (debug_enabled_) {
+      if (debug_enabled_) {
+        debug_pubs_[de]->img_raw.publish(
+          *cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", raw_img)
+             .toImageMsg());
+      } else {
+        RCLCPP_ERROR(get_logger(), "debug_pubs_ is null when debug enabled!");
+      }
+    }
+    img_queue_[de].push(raw_img);
+  }
+}
+
+void ArmorDetectorNode::detectOnce(DoubleEnd de)
+{
+  cv::Mat raw_img;
+  if (!img_queue_[de].waitAndPop(raw_img)) {
+    RCLCPP_WARN(get_logger(), "Failed to fetch the stream from the queue");
+    return;
   }
   auto armors = detector_[de]->detect(raw_img);
-  bool found = !armors.empty();
-  {  // Update ownership and miss count
-    std::lock_guard lock(find_mutex_);
-    if (debug_enabled_) {
-      std::shared_ptr<DebugPublishers> dbg;
-      {
-        std::lock_guard lock(debug_mutex_);
-        dbg = debug_pubs_;
-      }
-      cv::Mat dbg_img = raw_img.clone();
-      std_msgs::msg::Header hdr;
-      hdr.stamp = this->now();
-      hdr.frame_id =
-        de == LEFT ? "left_camera_optical_frame" : "right_camera_optical_frame";
-      dbg->binary[de].publish(
-        cv_bridge::CvImage(hdr, "mono8", detector_[de]->binary_img)
-          .toImageMsg());
-      dbg->lights->publish(detector_[de]->debug_lights);
-      dbg->armors->publish(detector_[de]->debug_armors);
-      dbg->numbers[de].publish(*cv_bridge::CvImage(
-                              std_msgs::msg::Header(), "mono8",
-                              detector_[de]->getAllNumbersImage())
-                              .toImageMsg());
-      // Draw on image & publish result
-      detector_[de]->drawResults(dbg_img);
-      cv::circle(dbg_img, cam_center_[de], 5, cv::Scalar(255, 0, 0), 2);
-      dbg->result[de].publish(
-        cv_bridge::CvImage(hdr, "bgr8", dbg_img).toImageMsg());
-    }
-    if (found) {
-      if (owner_ == -1) owner_ = static_cast<int>(de);
-      if (owner_ == static_cast<int>(de)) miss_count_[de] = 0;
-    } else if (owner_ == static_cast<int>(de)) {
-      ++miss_count_[de];
-    }
+  if (debug_enabled_) {
+    cv::Mat dbg_img = raw_img.clone();
+    std_msgs::msg::Header hdr;
+    hdr.stamp = this->now();
+    hdr.frame_id =
+      de == LEFT ? "left_camera_optical_frame" : "right_camera_optical_frame";
+    debug_pubs_[de]->binary.publish(
+      cv_bridge::CvImage(hdr, "mono8", detector_[de]->binary_img).toImageMsg());
+    debug_pubs_[de]->lights->publish(detector_[de]->debug_lights);
+    debug_pubs_[de]->armors->publish(detector_[de]->debug_armors);
+    debug_pubs_[de]->numbers.publish(
+      *cv_bridge::CvImage(
+         std_msgs::msg::Header(), "mono8", detector_[de]->getAllNumbersImage())
+         .toImageMsg());
+    // Draw on image & publish result
+    detector_[de]->drawResults(dbg_img);
+    cv::circle(dbg_img, cam_center_[de], 5, cv::Scalar(255, 0, 0), 2);
+    debug_pubs_[de]->result.publish(
+      cv_bridge::CvImage(hdr, "bgr8", dbg_img).toImageMsg());
   }
+  if (armors.empty()) return;
 
-  if (owner_ != static_cast<int>(de) || !found) return;
   publishArmorsAndMarkers(armors, de);
 }
 
@@ -353,9 +285,9 @@ void ArmorDetectorNode::publishArmorsAndMarkers(
   }
 
   if (debug_enabled_) {
-    marker_pub_->publish(marray);
+    marker_pub_[de]->publish(marray);
   }
-  armors_pub_->publish(msg);
+  armors_pub_[de]->publish(msg);
 }
 
 rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParametersSet(
@@ -370,10 +302,13 @@ rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParametersSet(
     if (name == "debug") {
       bool en = p.as_bool();
       debug_enabled_ = en;
-      if (en)
-        createDebugPublishers();
-      else
-        destroyDebugPublishers();
+      if (en) {
+        debug_pubs_[LEFT] = std::make_shared<DebugPublishers>(this, LEFT);
+        debug_pubs_[RIGHT] = std::make_shared<DebugPublishers>(this, RIGHT);
+      } else {
+        debug_pubs_[LEFT].reset();
+        debug_pubs_[RIGHT].reset();
+      }
     } else if (name == "binary_thres") {
       detector_[LEFT]->binary_thres = p.as_int();
       detector_[RIGHT]->binary_thres = p.as_int();
@@ -413,6 +348,30 @@ rcl_interfaces::msg::SetParametersResult ArmorDetectorNode::onParametersSet(
     }
   }
   return result;
+}
+DebugPublishers::DebugPublishers(rclcpp::Node * node_ptr, DoubleEnd de)
+{
+  std::string end_str = de == LEFT ? "left" : "right";
+  this->lights =
+    node_ptr->create_publisher<auto_aim_interfaces::msg::DebugLights>(
+      "/detector/" + end_str + "/debug_lights", 10);
+  this->armors = node_ptr->create_publisher<auto_aim_interfaces::msg::DebugArmors>(
+    "/detector/" + end_str + "/armors", 10);
+  this->binary = image_transport::create_publisher(
+    node_ptr, "/detector/" + end_str + "/binary_img");
+  this->img_raw = image_transport::create_publisher(
+    node_ptr, "/detector/" + end_str + "/image_raw");
+  this->numbers = image_transport::create_publisher(
+    node_ptr, "/detector/" + end_str + "/number_img");
+  this->result = image_transport::create_publisher(
+    node_ptr, "/detector/" + end_str + "/result_img");
+}
+DebugPublishers::~DebugPublishers()
+{
+  binary.shutdown();
+  img_raw.shutdown();
+  numbers.shutdown();
+  result.shutdown();
 }
 
 }  // namespace rm_auto_aim

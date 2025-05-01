@@ -1,6 +1,6 @@
 /rm_serial_driver:
   ros__parameters:
-    is_debug: true
+    debug: true
     left:
       device_name: /dev/ttyACM_LEFT
       baud_rate: 115200
@@ -46,7 +46,10 @@
 
 /armor_tracker:
   ros__parameters:
-    target_frame: odom
+    left:
+      target_frame: odom
+    right:
+      target_frame: odom
     max_armor_distance: 10.0
 
     ekf:

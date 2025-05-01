@@ -58,7 +58,7 @@ tracker_node = ComposableNode(
     plugin='rm_auto_aim::ArmorTrackerNode',
     name='armor_tracker',
     parameters=[node_params],
-    extra_arguments=[{'use_intra_process_comms': True}],
+    extra_arguments=[{'use_intra_process_comms': False}],
 )
 
 serial_node = ComposableNode(

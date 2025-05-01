@@ -24,6 +24,7 @@
 #include "armor_detector/pnp_solver.hpp"
 #include "auto_aim_interfaces/msg/armors.hpp"
 #include "camera.hpp"
+#include "safe_queue.hpp"
 
 namespace rm_auto_aim
 {
@@ -32,12 +33,14 @@ enum DoubleEnd : uint8_t { LEFT = 0, RIGHT = 1, DOUBLE_END_MAX = 2 };
 
 struct DebugPublishers
 {
+  DebugPublishers(rclcpp::Node * node_ptr, DoubleEnd de);
+  ~DebugPublishers();
   rclcpp::Publisher<auto_aim_interfaces::msg::DebugLights>::SharedPtr lights;
   rclcpp::Publisher<auto_aim_interfaces::msg::DebugArmors>::SharedPtr armors;
-  image_transport::Publisher binary[DOUBLE_END_MAX];
-  image_transport::Publisher numbers[DOUBLE_END_MAX];
-  image_transport::Publisher result[DOUBLE_END_MAX];
-  image_transport::Publisher img_raw[DOUBLE_END_MAX];
+  image_transport::Publisher binary;
+  image_transport::Publisher numbers;
+  image_transport::Publisher result;
+  image_transport::Publisher img_raw;
 };
 
 class ArmorDetectorNode : public rclcpp::Node
@@ -47,9 +50,9 @@ public:
   ~ArmorDetectorNode() override;
 
 private:
-  void mainLoop(DoubleEnd de);
-  void handleOnce(DoubleEnd de);
-  bool shouldDetect(DoubleEnd de);  // now non-const to allow state update
+  void detectLoop(DoubleEnd de);
+  void captureLoop(DoubleEnd de);
+  void detectOnce(DoubleEnd de);
 
   void initDetectors();
   void publishArmorsAndMarkers(const std::vector<Armor> & armors, DoubleEnd de);
@@ -57,16 +60,11 @@ private:
     const std::vector<rclcpp::Parameter> & params);
 
   // Publishers & Subscribers
-  rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr armors_pub_;
+  rclcpp::Publisher<auto_aim_interfaces::msg::Armors>::SharedPtr
+    armors_pub_[DOUBLE_END_MAX];
   rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr
-    marker_pub_;
+    marker_pub_[DOUBLE_END_MAX];
 
-  // Detection state
-  static constexpr int K_MISS_TOLERANCE = 5;
-  bool last_find_[DOUBLE_END_MAX] = {false, false};
-  int miss_count_[DOUBLE_END_MAX] = {K_MISS_TOLERANCE, K_MISS_TOLERANCE};
-  int owner_ = -1;
-  std::mutex find_mutex_;  // non-const methods
   // Camera
   std::unique_ptr<hikcamera::ImageCapturer> img_capture_[DOUBLE_END_MAX];
   camera::HikCameraParams hik_camera_params_;
@@ -76,19 +74,18 @@ private:
   camera_info_manager::CameraInfoManager cam_info_manager_;
 
   // thread
-  std::unique_ptr<std::thread> loop_thread[DOUBLE_END_MAX];
+  std::unique_ptr<std::thread> detect_thread[DOUBLE_END_MAX];
+  std::unique_ptr<std::thread> capture_thread[DOUBLE_END_MAX];
 
   // Camera info
   cv::Point2f cam_center_[DOUBLE_END_MAX];
 
   // Debug
   std::atomic<bool> debug_enabled_{false};
-  std::mutex debug_mutex_;
-  std::shared_ptr<DebugPublishers> debug_pubs_;
-  void createDebugPublishers();
-  void destroyDebugPublishers();
+  std::shared_ptr<DebugPublishers> debug_pubs_[DOUBLE_END_MAX];
 
   // Parameter client
+  SafeQueue<cv::Mat> img_queue_[DOUBLE_END_MAX];
   std::shared_ptr<rclcpp::AsyncParametersClient> param_client_;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
     param_cb_handle_;

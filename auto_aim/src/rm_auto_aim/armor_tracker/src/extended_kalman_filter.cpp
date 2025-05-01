@@ -1,12 +1,15 @@
-// Copyright 2022 Chen Jun
+// Copyright (C) 2022 ChenJun
+// Copyright (C) 2024 Zheng Yu
+// Licensed under the MIT License.
 
 #include "armor_tracker/extended_kalman_filter.hpp"
 
 namespace rm_auto_aim
 {
 ExtendedKalmanFilter::ExtendedKalmanFilter(
-  const VecVecFunc & f, const VecVecFunc & h, const VecMatFunc & j_f, const VecMatFunc & j_h,
-  const VoidMatFunc & u_q, const VecMatFunc & u_r, const Eigen::MatrixXd & P0)
+  const VecVecFunc & f, const VecVecFunc & h, const VecMatFunc & j_f,
+  const VecMatFunc & j_h, const VecMatFunc & u_q, const VecMatFunc & u_r,
+  const Eigen::MatrixXd & P0)
 : f(f),
   h(h),
   jacobian_f(j_f),
@@ -25,7 +28,7 @@ void ExtendedKalmanFilter::setState(const Eigen::VectorXd & x0) { x_post = x0; }
 
 Eigen::MatrixXd ExtendedKalmanFilter::predict()
 {
-  F = jacobian_f(x_post), Q = update_Q();
+  F = jacobian_f(x_post), Q = update_Q(x_post);
 
   x_pri = f(x_post);
   P_pri = F * P_post * F.transpose() + Q;
