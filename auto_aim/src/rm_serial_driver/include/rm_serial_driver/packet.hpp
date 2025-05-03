@@ -4,6 +4,7 @@
 #pragma once
 #include <sys/types.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -122,6 +123,7 @@ inline void print(const SendVisionData &pkt)
   printf("Armors Num    : %u\n", pkt.data.armors_num);
   printf("Position      : (x: %.2f, y: %.2f, z: %.2f)\n",
          pkt.data.x, pkt.data.y, pkt.data.z);
+  printf("Norm:         : %.2f\n", std::sqrt((pkt.data.x* pkt.data.x + pkt.data.y* pkt.data.y + pkt.data.z * pkt.data.z)));
   printf("Yaw           : %.2f deg\n", pkt.data.yaw);
   printf("Velocity      : (vx: %.2f, vy: %.2f, vz: %.2f)\n",
          pkt.data.vx, pkt.data.vy, pkt.data.vz);

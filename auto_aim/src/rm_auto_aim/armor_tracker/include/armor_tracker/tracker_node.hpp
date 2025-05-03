@@ -50,6 +50,8 @@ private:
 
   void publishMarkers(const auto_aim_interfaces::msg::Target & target_msg, DoubleEnd de);
 
+  std::atomic<bool> debug = false;
+
   // Maximum allowable armor distance in the XOY plane
   double max_armor_distance_;
 
@@ -73,7 +75,7 @@ private:
   std::string target_frame_[DOUBLE_END_MAX];
   std::shared_ptr<tf2_ros::Buffer> tf2_buffer_[DOUBLE_END_MAX];
   std::shared_ptr<tf2_ros::TransformListener> tf2_listener_[DOUBLE_END_MAX];
-  rclcpp::CallbackGroup::SharedPtr cb_group;
+  rclcpp::CallbackGroup::SharedPtr cb_group[DOUBLE_END_MAX];
   message_filters::Subscriber<auto_aim_interfaces::msg::Armors> armors_sub_[DOUBLE_END_MAX];
   
   std::shared_ptr<tf2_filter> tf2_filter_[DOUBLE_END_MAX];

@@ -7,6 +7,8 @@
 // STD
 #include <cmath>
 #include <memory>
+#include <rclcpp/callback_group.hpp>
+#include <rclcpp/subscription_options.hpp>
 #include <vector>
 
 namespace rm_auto_aim
@@ -15,6 +17,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 : Node("armor_tracker", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting TrackerNode!");
+  debug = this->declare_parameter("debug", false);
 
   // Maximum allowable armor distance in the XOY plane
   max_armor_distance_ = this->declare_parameter("max_armor_distance", 10.0);
@@ -142,6 +145,34 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     // clang-format on
     return q;
   };
+  auto u_q_right = [this](const Eigen::VectorXd & x_p) {
+    double vx = x_p(1), vy = x_p(3), v_yaw = x_p(7);
+    double dx = pow(pow(vx, 2) + pow(vy, 2), 0.5);
+    double dy = abs(v_yaw);
+    Eigen::MatrixXd q(9, 9);
+    double x, y;
+    x = exp(-dy) * (s2qxyz_max_ - s2qxyz_min_) + s2qxyz_min_;
+    y = exp(-dx) * (s2qyaw_max_ - s2qyaw_min_) + s2qyaw_min_;
+    double t = dt_[RIGHT], r = s2qr_;
+    double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x,
+           q_vx_vx = pow(t, 2) * x;
+    double q_y_y = pow(t, 4) / 4 * y, q_y_vy = pow(t, 3) / 2 * x,
+           q_vy_vy = pow(t, 2) * y;
+    double q_r = pow(t, 4) / 4 * r;
+    // clang-format off
+    //    xc      v_xc    yc      v_yc    za      v_za    yaw     v_yaw   r
+    q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,      0,
+          q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,      0,
+          0,      0,      q_x_x,  q_x_vx, 0,      0,      0,      0,      0,
+          0,      0,      q_x_vx, q_vx_vx,0,      0,      0,      0,      0,
+          0,      0,      0,      0,      q_x_x,  q_x_vx, 0,      0,      0,
+          0,      0,      0,      0,      q_x_vx, q_vx_vx,0,      0,      0,
+          0,      0,      0,      0,      0,      0,      q_y_y,  q_y_vy, 0,
+          0,      0,      0,      0,      0,      0,      q_y_vy, q_vy_vy,0,
+          0,      0,      0,      0,      0,      0,      0,      0,      q_r;
+    // clang-format on
+    return q;
+  };
   // update_R - measurement noise covariance matrix
   r_xyz_factor = declare_parameter("ekf.r_xyz_factor", 0.05);
   r_yaw = declare_parameter("ekf.r_yaw", 0.02);
@@ -152,12 +183,13 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     return r;
   };
   // P - error estimate covariance matrix
-  Eigen::DiagonalMatrix<double, 9> p0;
-  p0.setIdentity();
+  Eigen::DiagonalMatrix<double, 9> p0[DOUBLE_END_MAX];
+  p0[LEFT].setIdentity();
+  p0[RIGHT].setIdentity();
   tracker_[LEFT]->ekf =
-    ExtendedKalmanFilter{f_left, h, j_f_left, j_h, u_q_left, u_r, p0};
+    ExtendedKalmanFilter{f_left, h, j_f_left, j_h, u_q_left, u_r, p0[LEFT]};
   tracker_[RIGHT]->ekf =
-    ExtendedKalmanFilter{f_right, h, j_f_right, j_h, u_q_left, u_r, p0};
+    ExtendedKalmanFilter{f_right, h, j_f_right, j_h, u_q_right, u_r, p0[RIGHT]};
 
   // Reset tracker service
   using std::placeholders::_1;
@@ -174,7 +206,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
       return;
     });
   reset_tracker_srv_[RIGHT] = this->create_service<std_srvs::srv::Trigger>(
-    "/tracker/left/reset",
+    "/tracker/right/reset",
     [this](
       const std_srvs::srv::Trigger::Request::SharedPtr,
       std_srvs::srv::Trigger::Response::SharedPtr response) {
@@ -192,7 +224,7 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
       std_srvs::srv::Trigger::Response::SharedPtr response) {
       tracker_[LEFT]->tracker_state = Tracker::CHANGE_TARGET;
       response->success = true;
-      RCLCPP_INFO(this->get_logger(), "Target change!");
+      RCLCPP_INFO(this->get_logger(), "right target change!");
       return;
     });
   change_target_srv_[RIGHT] = this->create_service<std_srvs::srv::Trigger>(
@@ -202,12 +234,17 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
       std_srvs::srv::Trigger::Response::SharedPtr response) {
       tracker_[RIGHT]->tracker_state = Tracker::CHANGE_TARGET;
       response->success = true;
-      RCLCPP_INFO(this->get_logger(), "Target change!");
+      RCLCPP_INFO(this->get_logger(), "Left target change!");
       return;
     });
 
   // Subscriber with tf2 message_filter
   // tf2 relevant
+  cb_group[LEFT] = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  cb_group[RIGHT] = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions opts[DOUBLE_END_MAX];
+  opts[LEFT].callback_group = cb_group[LEFT];
+  opts[RIGHT].callback_group = cb_group[LEFT];
   tf2_buffer_[LEFT] = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   tf2_buffer_[RIGHT] = std::make_shared<tf2_ros::Buffer>(this->get_clock());
   // Create the timer interface before call to waitForTransform,
@@ -222,11 +259,11 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
     std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_[RIGHT]);
   // subscriber and filter
   armors_sub_[LEFT].subscribe(
-    this, "/detector/left/armors", rmw_qos_profile_sensor_data);
+    this, "/detector/left/armors", rmw_qos_profile_sensor_data, opts[LEFT]);
   armors_sub_[RIGHT].subscribe(
-    this, "/detector/right/armors", rmw_qos_profile_sensor_data);
-  target_frame_[LEFT] = this->declare_parameter("left.target_frame", "odom");
-  target_frame_[RIGHT] = this->declare_parameter("right.target_frame", "odom");
+    this, "/detector/right/armors", rmw_qos_profile_sensor_data, opts[RIGHT]);
+  target_frame_[LEFT] = this->declare_parameter("left.target_frame", "gimbal_left_link_offset");
+  target_frame_[RIGHT] = this->declare_parameter("right.target_frame", "gimbal_right_link_offset");
   tf2_filter_[LEFT] = std::make_shared<tf2_filter>(
     armors_sub_[LEFT], *tf2_buffer_[LEFT], target_frame_[LEFT], 10,
     this->get_node_logging_interface(), this->get_node_clock_interface(),
@@ -389,7 +426,9 @@ void ArmorTrackerNode::armorsCallback(
 
   target_pub_[de]->publish(target_msg);
 
-  publishMarkers(target_msg, de);
+  if (debug) {
+    publishMarkers(target_msg, de);
+  }
 }
 
 void ArmorTrackerNode::publishMarkers(

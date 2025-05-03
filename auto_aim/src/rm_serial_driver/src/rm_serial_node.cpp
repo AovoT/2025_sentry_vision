@@ -5,15 +5,21 @@
 
 #include <auto_aim_interfaces/msg/detail/tracker_info__struct.hpp>
 #include <exception>
+#include <mutex>
+#include <rcl_interfaces/msg/detail/parameter_descriptor__struct.hpp>
 #include <rclcpp/callback_group.hpp>
+#include <rclcpp/duration.hpp>
 #include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/subscription_options.hpp>
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2/time.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <visualization_msgs/msg/detail/marker__struct.hpp>
 
 #include "rm_serial_driver/packet.hpp"
+#include "util/mathit.hpp"
+#include "util/serial_parser.hpp"
 
 namespace rm_serial_driver
 {
@@ -21,54 +27,66 @@ namespace rm_serial_driver
 // Params implementation
 template <typename T>
 static T declare(
-  rclcpp::Node * node, const std::string & name, const T & default_val)
+  rclcpp::Node * node, const std::string & name, const T & default_val,
+  const rcl_interfaces::msg::ParameterDescriptor & desc =
+    rcl_interfaces::msg::ParameterDescriptor())
 {
-  return node->declare_parameter(name, default_val);
+  return node->declare_parameter(name, default_val, desc);
 }
 
 Params::Params(rclcpp::Node * node)
 {
+  rcl_interfaces::msg::ParameterDescriptor desc;
+  desc.set__read_only(true);
   config[LEFT].device_name =
-    declare(node, "left.device_name", std::string("/dev/ttyACM0"));
-  config[LEFT].baudrate = declare(node, "left.baud_rate", 115200);
-  config[LEFT].hardware_flow = declare(node, "left.hardware_flow", false);
-  config[LEFT].parity = declare(node, "left.parity", false);
-  config[LEFT].stop_bits = declare(node, "left.stop_bits", 1);
-  config[LEFT].timeout_ms = declare(node, "left.timeout_ms", 1000);
+    declare(node, "left.device_name", std::string("/dev/ttyACM0"), desc);
+  config[LEFT].baudrate = declare(node, "left.baud_rate", 115200, desc);
+  config[LEFT].hardware_flow = declare(node, "left.hardware_flow", false, desc);
+  config[LEFT].parity = declare(node, "left.parity", false, desc);
+  config[LEFT].stop_bits = declare(node, "left.stop_bits", 1, desc);
+  config[LEFT].timeout_ms = declare(node, "left.timeout_ms", 1000, desc);
 
   config[RIGHT].device_name =
-    declare(node, "right.device_name", std::string("/dev/ttyACM1"));
-  config[RIGHT].baudrate = declare(node, "right.baud_rate", 115200);
-  config[RIGHT].hardware_flow = declare(node, "right.hardware_flow", false);
-  config[RIGHT].parity = declare(node, "right.parity", false);
-  config[RIGHT].stop_bits = declare(node, "right.stop_bits", 1);
-  config[RIGHT].timeout_ms = declare(node, "right.timeout_ms", 1000);
+    declare(node, "right.device_name", std::string("/dev/ttyACM1"), desc);
+  config[RIGHT].baudrate = declare(node, "right.baud_rate", 115200, desc);
+  config[RIGHT].hardware_flow =
+    declare(node, "right.hardware_flow", false, desc);
+  config[RIGHT].parity = declare(node, "right.parity", false, desc);
+  config[RIGHT].stop_bits = declare(node, "right.stop_bits", 1, desc);
+  config[RIGHT].timeout_ms = declare(node, "right.timeout_ms", 1000, desc);
 
-  is_debug = declare(node, "debug", false);
+  debug = declare(node, "debug", false);
 }
 
 // Publishers implementation
-Publishers::Publishers(rclcpp::Node * node) : tf_broadcaster(node) {}
+Publishers::Publishers(rclcpp::Node * node) : tf_broadcaster(node)
+{
+  marker_p =
+    node->create_publisher<visualization_msgs::msg::Marker>("aiming_point", 10);
+}
 
 // Subscribers implementation
 Subscribers::Subscribers(rclcpp::Node * node, RMSerialDriver * parent)
 {
-  cb_group[LEFT] = node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-  cb_group[RIGHT] = node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-  rclcpp::SubscriptionOptions options;
+  cb_group[LEFT] =
+    node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  cb_group[RIGHT] =
+    node->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  rclcpp::SubscriptionOptions options[DOUBLE_END_MAX];
+  options[LEFT].callback_group = cb_group[LEFT];
+  options[RIGHT].callback_group = cb_group[RIGHT];
   tf_buffer = std::make_shared<tf2_ros::Buffer>(node->get_clock());
   tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
-  options.callback_group = cb_group[LEFT];
   target_sub[LEFT] =
     node->create_subscription<auto_aim_interfaces::msg::Target>(
       "/tracker/left/target", rclcpp::SensorDataQoS(),
-      std::bind(&RMSerialDriver::handleLeftMsg, parent, std::placeholders::_1), options);
-  options.callback_group = cb_group[RIGHT];
+      std::bind(&RMSerialDriver::handleLeftMsg, parent, std::placeholders::_1),
+      options[LEFT]);
   target_sub[RIGHT] =
     node->create_subscription<auto_aim_interfaces::msg::Target>(
       "/tracker/right/target", rclcpp::SensorDataQoS(),
-      std::bind(
-        &RMSerialDriver::handleRightMsg, parent, std::placeholders::_1), options);
+      std::bind(&RMSerialDriver::handleRightMsg, parent, std::placeholders::_1),
+      options[RIGHT]);
 }
 
 // Clients implementation
@@ -76,49 +94,60 @@ Clients::Clients(rclcpp::Node * node) : node_ptr(node)
 {
   detector_client =
     std::make_shared<rclcpp::AsyncParametersClient>(node_ptr, "armor_detector");
-  rune_client =
-    std::make_shared<rclcpp::AsyncParametersClient>(node_ptr, "rune_detector");
   reset_tracker_srv =
     node_ptr->create_client<std_srvs::srv::Trigger>("/reset_tracker");
 }
 
 void Clients::setParam(const rclcpp::Parameter & param)
 {
-  setParamInternal(param, detector_client, detector_future, "Armor");
-  setParamInternal(param, rune_client, rune_future, "Rune", true);
+  setParamInternal(param, detector_client, "detect_color");
 }
 
 void Clients::setParamInternal(
   const rclcpp::Parameter & param,
   const rclcpp::AsyncParametersClient::SharedPtr & client,
-  ResultFuturePtr & future, const std::string & name, bool invert)
+  const std::string & name, bool invert)
 {
-  if (!client->service_is_ready()) {
+  if (!client || !client->service_is_ready()) {
     RCLCPP_WARN(
       node_ptr->get_logger(), "%s service not ready, skipping", name.c_str());
     return;
   }
+
+  if (!param_mutex.try_lock()) {
+    RCLCPP_DEBUG(node_ptr->get_logger(), "%s param busy, skip", name.c_str());
+    return;
+  }
+  std::lock_guard<std::mutex> lock(param_mutex, std::adopt_lock);
+
+  int value = invert ? (1 - param.as_int()) : param.as_int();
+  rclcpp::Parameter new_param(param.get_name(), value);
+
+  RCLCPP_INFO(node_ptr->get_logger(), "Setting %s to %d", name.c_str(), value);
+
+  auto sync_future = client->set_parameters({new_param});
   if (
-    !future.valid() ||
-    future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
-    int value = invert ? (1 - param.as_int()) : param.as_int();
-    rclcpp::Parameter new_param(param.get_name(), value);
-    RCLCPP_INFO(
-      node_ptr->get_logger(), "Setting %s to %d", name.c_str(), value);
-    future = client->set_parameters(
-      {new_param}, [this, name, value](const ResultFuturePtr & results) {
-        for (auto & res : results.get()) {
-          if (!res.successful) {
-            RCLCPP_ERROR(
-              node_ptr->get_logger(), "%s set failed: %s", name.c_str(),
-              res.reason.c_str());
-            return;
-          }
+    sync_future.wait_for(std::chrono::milliseconds(100)) ==
+    std::future_status::ready) {
+    try {
+      auto results = sync_future.get();
+      for (const auto & res : results) {
+        if (!res.successful) {
+          RCLCPP_ERROR(
+            node_ptr->get_logger(), "%s set failed: %s", name.c_str(),
+            res.reason.c_str());
+          return;
         }
-        RCLCPP_INFO(
-          node_ptr->get_logger(), "%s set to %d succeeded", name.c_str(),
-          value);
-      });
+      }
+      RCLCPP_INFO(
+        node_ptr->get_logger(), "%s set to %d succeeded", name.c_str(), value);
+    } catch (const std::exception & e) {
+      RCLCPP_ERROR(
+        node_ptr->get_logger(), "Exception while setting %s: %s", name.c_str(),
+        e.what());
+    }
+  } else {
+    RCLCPP_WARN(node_ptr->get_logger(), "%s set timeout", name.c_str());
   }
 }
 
@@ -145,6 +174,8 @@ RMSerialDriver::RMSerialDriver(const rclcpp::NodeOptions & opts)
   port_[RIGHT] = std::make_unique<SerialPort>(params_.config[RIGHT]);
   this->openPortWithRetry(LEFT);
   this->openPortWithRetry(RIGHT);
+  params_.param_cb_handle = add_on_set_parameters_callback(
+    (std::bind(&RMSerialDriver::paramCallback, this, std::placeholders::_1)));
   thread_[LEFT] = std::thread([this] { receiveLoop(DoubleEnd::LEFT); });
   thread_[RIGHT] = std::thread([this] { receiveLoop(DoubleEnd::RIGHT); });
 }
@@ -231,7 +262,9 @@ void RMSerialDriver::handleMsg(
     {"5", 5}, {"outpost", 6}, {"guard", 7}, {"base", 8},
   };
 
-  bool is_valid = msg->header.frame_id == "odom";
+  bool is_valid = msg->header.frame_id == "gimbal_left_link_offset" ||
+                  msg->header.frame_id == "gimbal_right_link_offset" ||
+                  msg->header.frame_id == "odom";
   if (!is_valid) {
     RCLCPP_WARN(
       get_logger(), "invalid target frame id : %s",
@@ -252,6 +285,9 @@ void RMSerialDriver::handleMsg(
   d.armors_num = msg->armors_num;
   d.id = name_to_id[msg->id];
   d.yaw = msg->yaw;
+  d.x = msg->position.x;
+  d.y = msg->position.y;
+  d.z = msg->position.z;
   d.vx = msg->velocity.x;
   d.vy = msg->velocity.y;
   d.vz = msg->velocity.z;
@@ -260,51 +296,75 @@ void RMSerialDriver::handleMsg(
   d.r2 = msg->radius_2;
   d.dz = msg->dz;
 
-  // ========== 准备待转换点 ==========
-  geometry_msgs::msg::PointStamped pt_in;
-  pt_in.header = msg->header;
-  pt_in.point.x = msg->position.x;
-  pt_in.point.y = msg->position.y;
-  pt_in.point.z = msg->position.z;
-  pt_in.header.stamp = rclcpp::Time(0);  // 使用最新 TF
-
-  // ========== 转换 & 发送左右各自的包 ==========
-  const char * left_frame = "gimbal_left_link_offset";
-  const char * right_frame = "gimbal_right_link_offset";
-  auto target_frame = de == LEFT ? left_frame : right_frame;
-
   geometry_msgs::msg::PointStamped pt_out;
-  try {
-    pt_out =
-      subs_.tf_buffer->transform(pt_in, target_frame, tf2::durationFromSec(0.1));
-  } catch (const tf2::TransformException & ex) {
-    RCLCPP_WARN(
-      get_logger(), "TF transform to %s failed: %s", target_frame, ex.what());
-    return;
-  }
 
-  SendVisionData pkt = base_pkt;
-  pkt.data.x = pt_out.point.x;
-  pkt.data.y = pt_out.point.y;
-  pkt.data.z = pt_out.point.z;
-
-  auto buf = pack(pkt);
-  if (params_.is_debug) {
-    RCLCPP_INFO(get_logger(), "%s port debug info", de == LEFT ? "left" : "right");
-    print(pkt);
+  auto buf = pack(base_pkt);
+  if (params_.debug) {
+    RCLCPP_INFO(
+      get_logger(), "%s port debug info", de == LEFT ? "left" : "right");
+    print(base_pkt);
   }
 
   if (static_cast<ssize_t>(port_[de]->write(buf.data(), buf.size())) < 0) {
-    RCLCPP_WARN(get_logger(), "Failed to send vision data to left port");
+    RCLCPP_WARN(get_logger(), "Failed to send vision data to port");
   }
 }
 
 void RMSerialDriver::handlePacket(
   const ReceiveTargetInfoData & pkt, DoubleEnd de)
 {
-  (void)pkt;
-  (void)de;
+  auto d = pkt.data;
+  std::array<float, 3> point = {d.aim_x, d.aim_y, d.aim_z};
+  auto distance = norm(point);
+
+  if (distance > 0.01 && params_.debug) {
+    visualization_msgs::msg::Marker aiming_point;
+    aiming_point.header.frame_id =
+      de == LEFT ? "gimbal_left_link_offset" : "gimbal_right_link_offset";
+    aiming_point.header.stamp = this->now();
+    aiming_point.lifetime = rclcpp::Duration::from_seconds(1);
+    aiming_point.pose.position.x = d.aim_x;
+    aiming_point.pose.position.x = d.aim_y;
+    aiming_point.pose.position.x = d.aim_z;
+    pubs_.marker_p->publish(aiming_point);
+  }
+  static uint8_t aiming_color[DOUBLE_END_MAX] = {0, 0};
+  auto my_color = d.detect_color;
+  if (my_color != 0 && my_color != 1) [[unlikely]] {
+    RCLCPP_ERROR(
+      get_logger(),
+      "invalid color value: %d, expected color value is 0 - RED, 1 - BLUE",
+      my_color);
+    return;
+  }
+  if (my_color == aiming_color[de]) [[unlikely]] {
+    aiming_color[de] = my_color == 0 ? 1 : 0;
+    clis_.setParam(rclcpp::Parameter("detect_color", aiming_color[de]));
+  }
 }
+
+rcl_interfaces::msg::SetParametersResult RMSerialDriver::paramCallback(
+  const std::vector<rclcpp::Parameter> & parameters)
+{
+  rcl_interfaces::msg::SetParametersResult result;
+  result.successful = true;
+  result.reason = "success";
+
+  for (const auto & param : parameters) {
+    if (param.get_name() == "debug") {
+      params_.debug = param.as_bool();
+      RCLCPP_INFO(
+        this->get_logger(), "Updated debug: %s",
+        param.as_bool() ? "true" : "false");
+    } else {
+      result.successful = false;
+      result.reason = "Unsupported parameter update: " + param.get_name();
+    }
+  }
+
+  return result;
+}
+
 }  // namespace rm_serial_driver
 
 #include <rclcpp_components/register_node_macro.hpp>

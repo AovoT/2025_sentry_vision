@@ -356,7 +356,7 @@ DebugPublishers::DebugPublishers(rclcpp::Node * node_ptr, DoubleEnd de)
     node_ptr->create_publisher<auto_aim_interfaces::msg::DebugLights>(
       "/detector/" + end_str + "/debug_lights", 10);
   this->armors = node_ptr->create_publisher<auto_aim_interfaces::msg::DebugArmors>(
-    "/detector/" + end_str + "/armors", 10);
+    "/detector/" + end_str + "/debug_armors", 10);
   this->binary = image_transport::create_publisher(
     node_ptr, "/detector/" + end_str + "/binary_img");
   this->img_raw = image_transport::create_publisher(

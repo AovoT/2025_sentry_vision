@@ -9,8 +9,8 @@ sudo tee "$RULE_FILE" > /dev/null <<EOF
 # 串口左侧设备（serial: 3057358A3034）
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", ATTRS{serial}=="3057358A3034", SYMLINK+="ttyACM_RIGHT", MODE="0666"
 
-# 串口右侧设备（serial: 205837735948）
-SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", ATTRS{serial}=="205837735948", SYMLINK+="ttyACM_LEFT", MODE="0666"
+# 串口右侧设备（serial: 308E356A3034）
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0483", ATTRS{idProduct}=="5740", ATTRS{serial}=="308E356A3034", SYMLINK+="ttyACM_LEFT", MODE="0666"
 EOF
 
 echo "✅ 规则写入完成"
@@ -30,4 +30,4 @@ else
   echo "✅ 当前用户已在 dialout 组中"
 fi
 
-echo "🚀 完成。请重新插拔串口测试 /dev/ttyHIK_LEFT 和 /dev/ttyHIK_RIGHT 是否稳定"
+echo "🚀 完成。请重新插拔串口测试 /dev/ttyACM_LEFT 和 /dev/ttyACM_RIGHT 是否稳定"

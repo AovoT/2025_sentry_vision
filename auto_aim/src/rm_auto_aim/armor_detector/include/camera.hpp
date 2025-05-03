@@ -34,7 +34,7 @@ struct HikCameraParams
       desc);
     {
       int exp_us =
-        node->declare_parameter<int>("left.exposure_time", 5000, desc);
+        node->declare_parameter<int>("left.exposure_time", 2200, desc);
       left_camera_profile.exposure_time =
         std::chrono::duration<float, std::micro>(exp_us);
     }

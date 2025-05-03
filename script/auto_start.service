@@ -1,0 +1,16 @@
+[Unit]
+Description=ROS2 Sentry Vision Autostart
+After=network.target
+
+[Service]
+User=sentry
+WorkingDirectory=/home/sentry/Desktop/vision/2025_sentry_vision
+Environment="RMW_IMPLEMENTATION=rmw_fastrtps_cpp"
+Environment="ROS_DOMAIN_ID=0"
+Environment="DISPLAY=:0"
+ExecStart=/bin/bash -c "source /opt/ros/humble/setup.bash && source /home/sentry/Desktop/vision/2025_sentry_vision/install/setup.bash && ros2 launch rm_vision_bringup vision_bringup.launch.py >> /home/sentry/Desktop/vision/2025_sentry_vision/log/vision.log 2>&1"
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

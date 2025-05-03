@@ -18,10 +18,10 @@ def generate_launch_description():
         package='rclcpp_components',
         executable='component_container_mt',
         composable_node_descriptions=[
-            detector_node,
-            serial_node,
-            tracker_node,
             rsp_component,
+            detector_node,
+            tracker_node,
+            serial_node,
         ],
         output='screen',
         emulate_tty=True,

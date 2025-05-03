@@ -6,6 +6,7 @@
 #include <tf2_ros/transform_listener.h>
 
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 #include <rclcpp/callback_group.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_srvs/srv/trigger.hpp>
@@ -24,7 +25,7 @@ enum DoubleEnd { LEFT = 0, RIGHT = 1, DOUBLE_END_MAX = 2 };
 struct Params
 {
   SerialConfig config[DOUBLE_END_MAX];
-  bool is_debug;
+  std::atomic<bool> debug;
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
     param_cb_handle;
 
@@ -34,6 +35,7 @@ struct Params
 struct Publishers
 {
   tf2_ros::TransformBroadcaster tf_broadcaster;
+  rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_p;
 
   explicit Publishers(rclcpp::Node * node);
 };
@@ -62,14 +64,12 @@ private:
   void setParamInternal(
     const rclcpp::Parameter & param,
     const rclcpp::AsyncParametersClient::SharedPtr & client,
-    ResultFuturePtr & future, const std::string & name, bool invert = false);
+    const std::string & name, bool invert = false);
 
   rclcpp::Node * node_ptr;
   bool initial_set_param{false};
+  std::mutex param_mutex;
   rclcpp::AsyncParametersClient::SharedPtr detector_client;
-  rclcpp::AsyncParametersClient::SharedPtr rune_client;
-  ResultFuturePtr detector_future;
-  ResultFuturePtr rune_future;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_tracker_srv;
 };
 
@@ -108,5 +108,7 @@ private:
   void openPortWithRetry(DoubleEnd de);
   void handlePacket(const ReceiveImuData & pkt, DoubleEnd end);
   void handlePacket(const ReceiveTargetInfoData & pkt, DoubleEnd end);
+  rcl_interfaces::msg::SetParametersResult paramCallback(
+    const std::vector<rclcpp::Parameter> & parameters);
 };
 }  // namespace rm_serial_driver

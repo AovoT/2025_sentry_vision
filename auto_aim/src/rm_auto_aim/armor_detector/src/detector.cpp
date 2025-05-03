@@ -39,10 +39,10 @@ std::vector<Armor> Detector::detect(const cv::Mat & input)
   return armors_;
 }
 
-cv::Mat Detector::preprocessImage(const cv::Mat & rgb_img)
+cv::Mat Detector::preprocessImage(const cv::Mat & bgr_img)
 {
   cv::Mat gray_img;
-  cv::cvtColor(rgb_img, gray_img, cv::COLOR_RGB2GRAY);
+  cv::cvtColor(bgr_img, gray_img, cv::COLOR_RGB2GRAY);
 
   cv::Mat binary_img;
   cv::threshold(gray_img, binary_img, binary_thres, 255, cv::THRESH_BINARY);

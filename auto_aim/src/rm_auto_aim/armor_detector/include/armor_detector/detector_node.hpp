@@ -85,8 +85,7 @@ private:
   std::shared_ptr<DebugPublishers> debug_pubs_[DOUBLE_END_MAX];
 
   // Parameter client
-  SafeQueue<cv::Mat> img_queue_[DOUBLE_END_MAX];
-  std::shared_ptr<rclcpp::AsyncParametersClient> param_client_;
+  LatestQueue<cv::Mat> img_queue_[DOUBLE_END_MAX];
   rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr
     param_cb_handle_;
 };

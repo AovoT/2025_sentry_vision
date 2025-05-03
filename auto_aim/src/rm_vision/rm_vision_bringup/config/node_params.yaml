@@ -1,6 +1,6 @@
 /rm_serial_driver:
   ros__parameters:
-    debug: true
+    debug: false
     left:
       device_name: /dev/ttyACM_LEFT
       baud_rate: 115200
@@ -18,20 +18,19 @@
 
 /armor_detector:
   ros__parameters:
-    debug: true
-    rate: 200
+    debug: false
     left:
       name: "left_camera"
       cam_info_url: "package://rm_vision_bringup/config/camera_info_left.yaml"
-      exposure_time: 8000 # ms
-      gain: 5.0
+      exposure_time: 3500 # ms
+      gain: 15.0
       invert: true
       trigger_mode: false
     right:
       name: "right_camera"
       cam_info_url: "package://rm_vision_bringup/config/camera_info_right.yaml"
-      exposure_time: 8000 # ms
-      gain: 5.0
+      exposure_time: 3500 # ms
+      gain: 15.0
       invert: true
       trigger_mode: false
 
@@ -46,10 +45,11 @@
 
 /armor_tracker:
   ros__parameters:
+    debug: false
     left:
-      target_frame: odom
+      target_frame: gimbal_left_link_offset
     right:
-      target_frame: odom
+      target_frame: gimbal_right_link_offset
     max_armor_distance: 10.0
 
     ekf:
