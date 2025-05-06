@@ -211,8 +211,8 @@ void Tracker::initEKF(const Armor & a)
   // Set initial position at 0.2m behind the target
   target_state = Eigen::VectorXd::Zero(9);
   double r = 0.2;
-  double xc = xa + r * cos(yaw);
-  double yc = ya + r * sin(yaw);
+  double xc = xa + r * sin(yaw);
+  double yc = ya - r * cos (yaw);
   dz = 0, another_r = r;
   target_state << xc, 0, yc, 0, za, 0, yaw, 0, r;
 
@@ -252,9 +252,9 @@ void Tracker::handleArmorJump(const Armor & current_armor)
   Eigen::Vector3d infer_p = getArmorPositionFromState(target_state);
   if ((current_p - infer_p).norm() > max_match_distance_) {
     double r = target_state(8);
-    target_state(0) = p.x + r * cos(yaw);  // xc
+    target_state(0) = p.x + r * sin(yaw);  // xc
     target_state(1) = 0;                   // vxc
-    target_state(2) = p.y + r * sin(yaw);  // yc
+    target_state(2) = p.y - r * cos(yaw);  // yc
     target_state(3) = 0;                   // vyc
     target_state(4) = p.z;                 // za
     target_state(5) = 0;                   // vza
@@ -282,8 +282,8 @@ Eigen::Vector3d Tracker::getArmorPositionFromState(const Eigen::VectorXd & x)
   // Calculate predicted position of the current armor
   double xc = x(0), yc = x(2), za = x(4);
   double yaw = x(6), r = x(8);
-  double xa = xc - r * cos(yaw);
-  double ya = yc - r * sin(yaw);
+  double xa = xc - r * sin(yaw);
+  double ya = yc + r * cos(yaw);
   return Eigen::Vector3d(xa, ya, za);
 }
 

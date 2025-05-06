@@ -16,6 +16,12 @@
 #include "serial_port.hpp"
 #include "util/serial_parser.hpp"
 
+enum Color : uint8_t {
+  RED = 0,
+  BLUE = 1,
+  UNKNOWN = 2
+};
+
 namespace rm_serial_driver
 {
 

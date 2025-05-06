@@ -22,19 +22,19 @@
     left:
       name: "left_camera"
       cam_info_url: "package://rm_vision_bringup/config/camera_info_left.yaml"
-      exposure_time: 3500 # ms
+      exposure_time: 5500 # ms
       gain: 15.0
       invert: true
       trigger_mode: false
     right:
       name: "right_camera"
       cam_info_url: "package://rm_vision_bringup/config/camera_info_right.yaml"
-      exposure_time: 3500 # ms
+      exposure_time: 5500 # ms
       gain: 15.0
       invert: true
       trigger_mode: false
 
-    detect_color: 1
+    detect_color: 0
     binary_thres: 126
 
     light.min_ratio: 0.1

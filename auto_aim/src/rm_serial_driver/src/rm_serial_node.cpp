@@ -12,6 +12,7 @@
 #include <rclcpp/logging.hpp>
 #include <rclcpp/qos.hpp>
 #include <rclcpp/subscription_options.hpp>
+#include <string>
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2/time.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
@@ -328,18 +329,17 @@ void RMSerialDriver::handlePacket(
     aiming_point.pose.position.x = d.aim_z;
     pubs_.marker_p->publish(aiming_point);
   }
-  static uint8_t aiming_color[DOUBLE_END_MAX] = {0, 0};
-  auto my_color = d.detect_color;
-  if (my_color != 0 && my_color != 1) [[unlikely]] {
+  static std::atomic<uint8_t> aiming_color = UNKNOWN;
+  if (d.detect_color != RED && d.detect_color != BLUE) [[unlikely]] {
     RCLCPP_ERROR(
       get_logger(),
       "invalid color value: %d, expected color value is 0 - RED, 1 - BLUE",
-      my_color);
+      d.detect_color);
     return;
   }
-  if (my_color == aiming_color[de]) [[unlikely]] {
-    aiming_color[de] = my_color == 0 ? 1 : 0;
-    clis_.setParam(rclcpp::Parameter("detect_color", aiming_color[de]));
+  if (d.detect_color != aiming_color || aiming_color == UNKNOWN) [[unlikely]] {
+    clis_.setParam(rclcpp::Parameter("detect_color", d.detect_color));
+    aiming_color.store(d.detect_color);
   }
 }
 

@@ -17,330 +17,278 @@ ArmorTrackerNode::ArmorTrackerNode(const rclcpp::NodeOptions & options)
 : Node("armor_tracker", options)
 {
   RCLCPP_INFO(this->get_logger(), "Starting TrackerNode!");
-  debug = this->declare_parameter("debug", false);
+  declareParameters();
+  initTrackers();
+  initEkf(LEFT);
+  initEkf(RIGHT);
+  initServices();
+  initTf();
+  initSubscribers();
+  initPublishers();
+  initMarkers();
+}
+void ArmorTrackerNode::declareParameters()
+{
+  debug               = declare_parameter("debug", false);
+  max_armor_distance_ = declare_parameter("max_armor_distance", 10.0);
 
-  // Maximum allowable armor distance in the XOY plane
-  max_armor_distance_ = this->declare_parameter("max_armor_distance", 10.0);
-
-  // Tracker
-  double max_match_distance =
-    this->declare_parameter("tracker.max_match_distance", 0.15);
-  double max_match_yaw_diff =
-    this->declare_parameter("tracker.max_match_yaw_diff", 1.0);
-  tracker_[LEFT] =
-    std::make_unique<Tracker>(max_match_distance, max_match_yaw_diff);
-  tracker_[RIGHT] =
-    std::make_unique<Tracker>(max_match_distance, max_match_yaw_diff);
-  int tracking_thres = this->declare_parameter("tracker.tracking_thres", 5);
-  tracker_[LEFT]->tracking_thres = tracking_thres;
-  tracker_[RIGHT]->tracking_thres = tracking_thres;
-  lost_time_thres_ = this->declare_parameter("tracker.lost_time_thres", 0.3);
-
-  // EKF
-  // xa = x_armor, xc = x_robot_center
-  // state: xc, v_xc, yc, v_yc, za, v_za, yaw, v_yaw, r
-  // measurement: xa, ya, za, yaw
-  // f - Process function
-  auto f_left = [this](const Eigen::VectorXd & x) {
-    Eigen::VectorXd x_new = x;
-    x_new(0) += x(1) * dt_[LEFT];
-    x_new(2) += x(3) * dt_[LEFT];
-    x_new(4) += x(5) * dt_[LEFT];
-    x_new(6) += x(7) * dt_[LEFT];
-    return x_new;
-  };
-  auto f_right = [this](const Eigen::VectorXd & x) {
-    Eigen::VectorXd x_new = x;
-    x_new(0) += x(1) * dt_[RIGHT];
-    x_new(2) += x(3) * dt_[RIGHT];
-    x_new(4) += x(5) * dt_[RIGHT];
-    x_new(6) += x(7) * dt_[RIGHT];
-    return x_new;
-  };
-  // J_f - Jacobian of process function
-  auto j_f_left = [this](const Eigen::VectorXd &) {
-    Eigen::MatrixXd f(9, 9);
-    // clang-format off
-    f <<  1,   dt_[LEFT], 0,   0,   0,   0,   0,   0,   0,
-          0,   1,   0,   0,   0,   0,   0,   0,   0,
-          0,   0,   1,   dt_[LEFT], 0,   0,   0,   0,   0, 
-          0,   0,   0,   1,   0,   0,   0,   0,   0,
-          0,   0,   0,   0,   1,   dt_[LEFT], 0,   0,   0,
-          0,   0,   0,   0,   0,   1,   0,   0,   0,
-          0,   0,   0,   0,   0,   0,   1,   dt_[LEFT], 0,
-          0,   0,   0,   0,   0,   0,   0,   1,   0,
-          0,   0,   0,   0,   0,   0,   0,   0,   1;
-    // clang-format on
-    return f;
-  };
-  auto j_f_right = [this](const Eigen::VectorXd &) {
-    Eigen::MatrixXd f(9, 9);
-    // clang-format off
-    f <<  1,   dt_[RIGHT], 0,   0,   0,   0,   0,   0,   0,
-          0,   1,   0,   0,   0,   0,   0,   0,   0,
-          0,   0,   1,   dt_[RIGHT], 0,   0,   0,   0,   0, 
-          0,   0,   0,   1,   0,   0,   0,   0,   0,
-          0,   0,   0,   0,   1,   dt_[RIGHT], 0,   0,   0,
-          0,   0,   0,   0,   0,   1,   0,   0,   0,
-          0,   0,   0,   0,   0,   0,   1,   dt_[RIGHT], 0,
-          0,   0,   0,   0,   0,   0,   0,   1,   0,
-          0,   0,   0,   0,   0,   0,   0,   0,   1;
-    // clang-format on
-    return f;
-  };
-  // h - Observation function
-  auto h = [](const Eigen::VectorXd & x) {
-    Eigen::VectorXd z(4);
-    double xc = x(0), yc = x(2), yaw = x(6), r = x(8);
-    z(0) = xc - r * cos(yaw);  // xa
-    z(1) = yc - r * sin(yaw);  // ya
-    z(2) = x(4);               // za
-    z(3) = x(6);               // yaw
-    return z;
-  };
-  // J_h - Jacobian of observation function
-  auto j_h = [](const Eigen::VectorXd & x) {
-    Eigen::MatrixXd h(4, 9);
-    double yaw = x(6), r = x(8);
-    // clang-format off
-    //    xc   v_xc yc   v_yc za   v_za yaw         v_yaw r
-    h <<  1,   0,   0,   0,   0,   0,   r*sin(yaw), 0,   -cos(yaw),
-          0,   0,   1,   0,   0,   0,   -r*cos(yaw),0,   -sin(yaw),
-          0,   0,   0,   0,   1,   0,   0,          0,   0,
-          0,   0,   0,   0,   0,   0,   1,          0,   0;
-    // clang-format on
-    return h;
-  };
-  // update_Q - process noise covariance matrix
+  //  EKF 动态噪声、测量噪声
   s2qxyz_max_ = declare_parameter("ekf.sigma2_q_xyz_max", 0.1);
   s2qxyz_min_ = declare_parameter("ekf.sigma2_q_xyz_min", 0.05);
   s2qyaw_max_ = declare_parameter("ekf.sigma2_q_yaw_max", 10.0);
   s2qyaw_min_ = declare_parameter("ekf.sigma2_q_yaw_min", 5.0);
-  s2qr_ = declare_parameter("ekf.sigma2_q_r", 80.0);
-  auto u_q_left = [this](const Eigen::VectorXd & x_p) {
-    double vx = x_p(1), vy = x_p(3), v_yaw = x_p(7);
-    double dx = pow(pow(vx, 2) + pow(vy, 2), 0.5);
-    double dy = abs(v_yaw);
+  s2qr_       = declare_parameter("ekf.sigma2_q_r", 80.0);
+  r_xyz_factor= declare_parameter("ekf.r_xyz_factor", 0.05);
+  r_yaw       = declare_parameter("ekf.r_yaw", 0.02);
+
+  //  左右 gimbal 目标坐标系
+  target_frame_[LEFT]  = declare_parameter("left.target_frame",
+                                           "gimbal_left_link_offset");
+  target_frame_[RIGHT] = declare_parameter("right.target_frame",
+                                           "gimbal_right_link_offset");
+}
+
+void ArmorTrackerNode::initTrackers()
+{
+  double max_match_distance = declare_parameter("tracker.max_match_distance", 0.15);
+  double max_match_yaw_diff = declare_parameter("tracker.max_match_yaw_diff", 1.0);
+  int    tracking_thres     = declare_parameter("tracker.tracking_thres", 5);
+  lost_time_thres_          = declare_parameter("tracker.lost_time_thres", 0.3);
+
+  for (auto de : {LEFT, RIGHT})
+  {
+    tracker_[de] = std::make_unique<Tracker>(max_match_distance, max_match_yaw_diff);
+    tracker_[de]->tracking_thres = tracking_thres;
+  }
+}
+
+void ArmorTrackerNode::initEkf(DoubleEnd de)
+{
+  /* ---------- 通道相关别名 ---------- */
+  auto & trk = tracker_[de];
+  /* ---------- ① 过程模型 f(x) & J_f(x) ---------- */
+  auto f = [this, de](const Eigen::VectorXd & x) {
+    Eigen::VectorXd xn = x;
+    xn(0) += x(1) * dt_[de];  // xc += v_xc·dt
+    xn(2) += x(3) * dt_[de];  // yc += v_yc·dt
+    xn(4) += x(5) * dt_[de];  // za += v_za·dt
+    xn(6) += x(7) * dt_[de];  // yaw += v_yaw·dt
+    return xn;
+  };
+
+  auto j_f = [this, de](const Eigen::VectorXd &) {
+    Eigen::MatrixXd jf = Eigen::MatrixXd::Identity(9, 9);
+    jf(0, 1) = dt_[de];  // ∂xc/∂v_xc
+    jf(2, 3) = dt_[de];  // ∂yc/∂v_yc
+    jf(4, 5) = dt_[de];  // ∂za/∂v_za
+    jf(6, 7) = dt_[de];  // ∂yaw/∂v_yaw
+    return jf;
+  };
+
+  /* ---------- ② 观测模型 h(x) & J_h(x) ---------- */
+  auto h = [](const Eigen::VectorXd & x) {
+    Eigen::VectorXd z(4);
+    const double xc = x(0), yc = x(2), yaw = x(6), r = x(8);
+    z << xc - r * std::sin(yaw),  // xa
+      yc + r * std::cos(yaw),     // ya
+      x(4),                       // za
+      yaw;                        // yaw
+    return z;
+  };
+
+  auto j_h = [](const Eigen::VectorXd & x) {
+    Eigen::MatrixXd jh(4, 9);
+    jh.setZero();
+    const double yaw = x(6), r = x(8);
+    jh(0, 0) = 1.0;
+    jh(0, 6) = -r * std::cos(yaw);
+    jh(0, 8) = -std::sin(yaw);
+
+    jh(1, 2) = 1.0;
+    jh(1, 6) = -r * std::sin(yaw);
+    jh(1, 8) = std::cos(yaw);
+
+    jh(2, 4) = 1.0;
+    jh(3, 6) = 1.0;
+    return jh;
+  };
+
+  /* ---------- ③ 过程噪声 Q(k) ---------- */
+  auto u_q = [this, de](const Eigen::VectorXd & xp) {
+    const double vx = xp(1), vy = xp(3), v_yaw = xp(7);
+    const double dx = std::hypot(vx, vy);
+    const double dy = std::abs(v_yaw);
+
+    const double q_xyz =
+      std::exp(-dy) * (s2qxyz_max_ - s2qxyz_min_) + s2qxyz_min_;
+    const double q_yaw =
+      std::exp(-dx) * (s2qyaw_max_ - s2qyaw_min_) + s2qyaw_min_;
+
     Eigen::MatrixXd q(9, 9);
-    double x, y;
-    x = exp(-dy) * (s2qxyz_max_ - s2qxyz_min_) + s2qxyz_min_;
-    y = exp(-dx) * (s2qyaw_max_ - s2qyaw_min_) + s2qyaw_min_;
-    double t = dt_[LEFT], r = s2qr_;
-    double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x,
-           q_vx_vx = pow(t, 2) * x;
-    double q_y_y = pow(t, 4) / 4 * y, q_y_vy = pow(t, 3) / 2 * x,
-           q_vy_vy = pow(t, 2) * y;
-    double q_r = pow(t, 4) / 4 * r;
-    // clang-format off
-    //    xc      v_xc    yc      v_yc    za      v_za    yaw     v_yaw   r
-    q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,      0,
-          q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,      0,
-          0,      0,      q_x_x,  q_x_vx, 0,      0,      0,      0,      0,
-          0,      0,      q_x_vx, q_vx_vx,0,      0,      0,      0,      0,
-          0,      0,      0,      0,      q_x_x,  q_x_vx, 0,      0,      0,
-          0,      0,      0,      0,      q_x_vx, q_vx_vx,0,      0,      0,
-          0,      0,      0,      0,      0,      0,      q_y_y,  q_y_vy, 0,
-          0,      0,      0,      0,      0,      0,      q_y_vy, q_vy_vy,0,
-          0,      0,      0,      0,      0,      0,      0,      0,      q_r;
-    // clang-format on
+    q.setZero();
+    auto fill = [&](int p, int v, double s2) {
+      q(p, p) = std::pow(dt_[de], 4) / 4 * s2;
+      q(p, v) = q(v, p) = std::pow(dt_[de], 3) / 2 * s2;
+      q(v, v) = std::pow(dt_[de], 2) * s2;
+    };
+    fill(0, 1, q_xyz);  // x
+    fill(2, 3, q_xyz);  // y
+    fill(4, 5, q_xyz);  // z
+    fill(6, 7, q_yaw);  // yaw
+    q(8, 8) = std::pow(dt_[de], 4) / 4 * s2qr_;
     return q;
   };
-  auto u_q_right = [this](const Eigen::VectorXd & x_p) {
-    double vx = x_p(1), vy = x_p(3), v_yaw = x_p(7);
-    double dx = pow(pow(vx, 2) + pow(vy, 2), 0.5);
-    double dy = abs(v_yaw);
-    Eigen::MatrixXd q(9, 9);
-    double x, y;
-    x = exp(-dy) * (s2qxyz_max_ - s2qxyz_min_) + s2qxyz_min_;
-    y = exp(-dx) * (s2qyaw_max_ - s2qyaw_min_) + s2qyaw_min_;
-    double t = dt_[RIGHT], r = s2qr_;
-    double q_x_x = pow(t, 4) / 4 * x, q_x_vx = pow(t, 3) / 2 * x,
-           q_vx_vx = pow(t, 2) * x;
-    double q_y_y = pow(t, 4) / 4 * y, q_y_vy = pow(t, 3) / 2 * x,
-           q_vy_vy = pow(t, 2) * y;
-    double q_r = pow(t, 4) / 4 * r;
-    // clang-format off
-    //    xc      v_xc    yc      v_yc    za      v_za    yaw     v_yaw   r
-    q <<  q_x_x,  q_x_vx, 0,      0,      0,      0,      0,      0,      0,
-          q_x_vx, q_vx_vx,0,      0,      0,      0,      0,      0,      0,
-          0,      0,      q_x_x,  q_x_vx, 0,      0,      0,      0,      0,
-          0,      0,      q_x_vx, q_vx_vx,0,      0,      0,      0,      0,
-          0,      0,      0,      0,      q_x_x,  q_x_vx, 0,      0,      0,
-          0,      0,      0,      0,      q_x_vx, q_vx_vx,0,      0,      0,
-          0,      0,      0,      0,      0,      0,      q_y_y,  q_y_vy, 0,
-          0,      0,      0,      0,      0,      0,      q_y_vy, q_vy_vy,0,
-          0,      0,      0,      0,      0,      0,      0,      0,      q_r;
-    // clang-format on
-    return q;
-  };
-  // update_R - measurement noise covariance matrix
-  r_xyz_factor = declare_parameter("ekf.r_xyz_factor", 0.05);
-  r_yaw = declare_parameter("ekf.r_yaw", 0.02);
+
+  /* ---------- ④ 测量噪声 R(k) ---------- */
   auto u_r = [this](const Eigen::VectorXd & z) {
     Eigen::DiagonalMatrix<double, 4> r;
-    double x = r_xyz_factor;
-    r.diagonal() << abs(x * z[0]), abs(x * z[1]), abs(x * z[2]), r_yaw;
+    const double xyz_s2 = r_xyz_factor;
+    r.diagonal() << std::abs(xyz_s2 * z(0)), std::abs(xyz_s2 * z(1)),
+      std::abs(xyz_s2 * z(2)), r_yaw;
     return r;
   };
-  // P - error estimate covariance matrix
-  Eigen::DiagonalMatrix<double, 9> p0[DOUBLE_END_MAX];
-  p0[LEFT].setIdentity();
-  p0[RIGHT].setIdentity();
-  tracker_[LEFT]->ekf =
-    ExtendedKalmanFilter{f_left, h, j_f_left, j_h, u_q_left, u_r, p0[LEFT]};
-  tracker_[RIGHT]->ekf =
-    ExtendedKalmanFilter{f_right, h, j_f_right, j_h, u_q_right, u_r, p0[RIGHT]};
 
-  // Reset tracker service
-  using std::placeholders::_1;
-  using std::placeholders::_2;
-  using std::placeholders::_3;
-  reset_tracker_srv_[LEFT] = this->create_service<std_srvs::srv::Trigger>(
-    "/tracker/left/reset",
-    [this](
-      const std_srvs::srv::Trigger::Request::SharedPtr,
-      std_srvs::srv::Trigger::Response::SharedPtr response) {
-      tracker_[LEFT]->tracker_state = Tracker::LOST;
-      response->success = true;
-      RCLCPP_INFO(this->get_logger(), "Left Tracker reset!");
-      return;
-    });
-  reset_tracker_srv_[RIGHT] = this->create_service<std_srvs::srv::Trigger>(
-    "/tracker/right/reset",
-    [this](
-      const std_srvs::srv::Trigger::Request::SharedPtr,
-      std_srvs::srv::Trigger::Response::SharedPtr response) {
-      tracker_[RIGHT]->tracker_state = Tracker::LOST;
-      response->success = true;
-      RCLCPP_INFO(this->get_logger(), "Right Tracker reset!");
-      return;
-    });
-
-  // Change target service
-  change_target_srv_[LEFT] = this->create_service<std_srvs::srv::Trigger>(
-    "/tracker/left/change",
-    [this](
-      const std_srvs::srv::Trigger::Request::SharedPtr,
-      std_srvs::srv::Trigger::Response::SharedPtr response) {
-      tracker_[LEFT]->tracker_state = Tracker::CHANGE_TARGET;
-      response->success = true;
-      RCLCPP_INFO(this->get_logger(), "right target change!");
-      return;
-    });
-  change_target_srv_[RIGHT] = this->create_service<std_srvs::srv::Trigger>(
-    "/tracker/right/change",
-    [this](
-      const std_srvs::srv::Trigger::Request::SharedPtr,
-      std_srvs::srv::Trigger::Response::SharedPtr response) {
-      tracker_[RIGHT]->tracker_state = Tracker::CHANGE_TARGET;
-      response->success = true;
-      RCLCPP_INFO(this->get_logger(), "Left target change!");
-      return;
-    });
-
-  // Subscriber with tf2 message_filter
-  // tf2 relevant
-  cb_group[LEFT] = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-  cb_group[RIGHT] = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
-  rclcpp::SubscriptionOptions opts[DOUBLE_END_MAX];
-  opts[LEFT].callback_group = cb_group[LEFT];
-  opts[RIGHT].callback_group = cb_group[LEFT];
-  tf2_buffer_[LEFT] = std::make_shared<tf2_ros::Buffer>(this->get_clock());
-  tf2_buffer_[RIGHT] = std::make_shared<tf2_ros::Buffer>(this->get_clock());
-  // Create the timer interface before call to waitForTransform,
-  // to avoid a tf2_ros::CreateTimerInterfaceException exception
-  auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
-    this->get_node_base_interface(), this->get_node_timers_interface());
-  tf2_buffer_[LEFT]->setCreateTimerInterface(timer_interface);
-  tf2_buffer_[RIGHT]->setCreateTimerInterface(timer_interface);
-  tf2_listener_[LEFT] =
-    std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_[LEFT]);
-  tf2_listener_[RIGHT] =
-    std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_[RIGHT]);
-  // subscriber and filter
-  armors_sub_[LEFT].subscribe(
-    this, "/detector/left/armors", rmw_qos_profile_sensor_data, opts[LEFT]);
-  armors_sub_[RIGHT].subscribe(
-    this, "/detector/right/armors", rmw_qos_profile_sensor_data, opts[RIGHT]);
-  target_frame_[LEFT] = this->declare_parameter("left.target_frame", "gimbal_left_link_offset");
-  target_frame_[RIGHT] = this->declare_parameter("right.target_frame", "gimbal_right_link_offset");
-  tf2_filter_[LEFT] = std::make_shared<tf2_filter>(
-    armors_sub_[LEFT], *tf2_buffer_[LEFT], target_frame_[LEFT], 10,
-    this->get_node_logging_interface(), this->get_node_clock_interface(),
-    std::chrono::duration<int>(1));
-  tf2_filter_[RIGHT] = std::make_shared<tf2_filter>(
-    armors_sub_[RIGHT], *tf2_buffer_[RIGHT], target_frame_[RIGHT], 10,
-    this->get_node_logging_interface(), this->get_node_clock_interface(),
-    std::chrono::duration<int>(1));
-  // Register a callback with tf2_ros::MessageFilter to be called when transforms are available
-  tf2_filter_[LEFT]->registerCallback(
-    [this](std::shared_ptr<const auto_aim_interfaces::msg::Armors> armors_ptr)
-      -> void {
-      return this->armorsCallback(
-        std::const_pointer_cast<auto_aim_interfaces::msg::Armors>(armors_ptr),
-        LEFT);
-    });
-  tf2_filter_[RIGHT]->registerCallback(
-    [this](std::shared_ptr<const auto_aim_interfaces::msg::Armors> armors_ptr)
-      -> void {
-      return this->armorsCallback(
-        std::const_pointer_cast<auto_aim_interfaces::msg::Armors>(armors_ptr),
-        RIGHT);
-    });
-
-  // Measurement publisher (for debug usage)
-  info_pub_[LEFT] =
-    this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>(
-      "/tracker/left/info", 10);
-  info_pub_[RIGHT] =
-    this->create_publisher<auto_aim_interfaces::msg::TrackerInfo>(
-      "/tracker/right/info", 10);
-
-  // Publisher
-  target_pub_[LEFT] = this->create_publisher<auto_aim_interfaces::msg::Target>(
-    "/tracker/left/target", rclcpp::SensorDataQoS());
-  target_pub_[RIGHT] = this->create_publisher<auto_aim_interfaces::msg::Target>(
-    "/tracker/right/target", rclcpp::SensorDataQoS());
-
-  // Visualization Marker Publisher
-  // See http://wiki.ros.org/rviz/DisplayTypes/Marker
-  position_marker_[LEFT].ns = "position";
-  position_marker_[LEFT].type = visualization_msgs::msg::Marker::SPHERE;
-  position_marker_[LEFT].scale.x = position_marker_[LEFT].scale.y =
-    position_marker_[LEFT].scale.z = 0.1;
-  position_marker_[LEFT].color.a = 1.0;
-  position_marker_[LEFT].color.g = 1.0;
-  position_marker_[RIGHT] = position_marker_[LEFT];
-  linear_v_marker_[LEFT].type = visualization_msgs::msg::Marker::ARROW;
-  linear_v_marker_[LEFT].ns = "linear_v";
-  linear_v_marker_[LEFT].scale.x = 0.03;
-  linear_v_marker_[LEFT].scale.y = 0.05;
-  linear_v_marker_[LEFT].color.a = 1.0;
-  linear_v_marker_[LEFT].color.r = 1.0;
-  linear_v_marker_[LEFT].color.g = 1.0;
-  linear_v_marker_[RIGHT] = linear_v_marker_[LEFT];
-  angular_v_marker_[LEFT].type = visualization_msgs::msg::Marker::ARROW;
-  angular_v_marker_[LEFT].ns = "angular_v";
-  angular_v_marker_[LEFT].scale.x = 0.03;
-  angular_v_marker_[LEFT].scale.y = 0.05;
-  angular_v_marker_[LEFT].color.a = 1.0;
-  angular_v_marker_[LEFT].color.b = 1.0;
-  angular_v_marker_[LEFT].color.g = 1.0;
-  angular_v_marker_[RIGHT] = angular_v_marker_[LEFT];
-  armor_marker_[LEFT].ns = "armors";
-  armor_marker_[LEFT].type = visualization_msgs::msg::Marker::CUBE;
-  armor_marker_[LEFT].scale.x = 0.03;
-  armor_marker_[LEFT].scale.z = 0.125;
-  armor_marker_[LEFT].color.a = 1.0;
-  armor_marker_[LEFT].color.r = 1.0;
-  armor_marker_[RIGHT] = armor_marker_[LEFT];
-  marker_pub_[LEFT] =
-    this->create_publisher<visualization_msgs::msg::MarkerArray>(
-      "/tracker/left/marker", 10);
-  marker_pub_[RIGHT] =
-    this->create_publisher<visualization_msgs::msg::MarkerArray>(
-      "/tracker/right/marker", 10);
+  /* ---------- ⑤ EKF 实例化 ---------- */
+  Eigen::DiagonalMatrix<double, 9> p0;
+  p0.setIdentity();
+  trk->ekf = ExtendedKalmanFilter{f, h, j_f, j_h, u_q, u_r, p0};
 }
+
+void ArmorTrackerNode::initServices()
+{
+  using Trigger = std_srvs::srv::Trigger;
+  using Req  = Trigger::Request::SharedPtr;
+  using Resp = Trigger::Response::SharedPtr;
+
+  reset_tracker_srv_[LEFT] = create_service<Trigger>(
+    "/tracker/left/reset",
+    [this](Req, Resp res) {
+      tracker_[LEFT]->tracker_state = Tracker::LOST;
+      res->success = true;
+      RCLCPP_INFO(get_logger(), "Left Tracker reset!");
+    });
+
+  reset_tracker_srv_[RIGHT] = create_service<Trigger>(
+    "/tracker/right/reset",
+    [this](Req, Resp res) {
+      tracker_[RIGHT]->tracker_state = Tracker::LOST;
+      res->success = true;
+      RCLCPP_INFO(get_logger(), "Right Tracker reset!");
+    });
+
+  change_target_srv_[LEFT] = create_service<Trigger>(
+    "/tracker/left/change",
+    [this](Req, Resp res) {
+      tracker_[LEFT]->tracker_state = Tracker::CHANGE_TARGET;
+      res->success = true;
+      RCLCPP_INFO(get_logger(), "Left target change!");
+    });
+
+  change_target_srv_[RIGHT] = create_service<Trigger>(
+    "/tracker/right/change",
+    [this](Req, Resp res) {
+      tracker_[RIGHT]->tracker_state = Tracker::CHANGE_TARGET;
+      res->success = true;
+      RCLCPP_INFO(get_logger(), "Right target change!");
+    });
+}
+
+void ArmorTrackerNode::initTf()
+{
+  cb_group[LEFT]  = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  cb_group[RIGHT] = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
+  // 共有计时器接口
+  auto timer_interface = std::make_shared<tf2_ros::CreateTimerROS>(
+        get_node_base_interface(), get_node_timers_interface());
+
+  for (auto de : {LEFT, RIGHT})
+  {
+    tf2_buffer_[de] = std::make_shared<tf2_ros::Buffer>(get_clock());
+    tf2_buffer_[de]->setCreateTimerInterface(timer_interface);
+    tf2_listener_[de] = std::make_shared<tf2_ros::TransformListener>(*tf2_buffer_[de]);
+  }
+}
+
+void ArmorTrackerNode::initSubscribers()
+{
+  rclcpp::SubscriptionOptions opts[DOUBLE_END_MAX];
+  opts[LEFT].callback_group  = cb_group[LEFT];
+  opts[RIGHT].callback_group = cb_group[RIGHT];
+
+  armors_sub_[LEFT].subscribe(
+      this, "/detector/left/armors", rmw_qos_profile_sensor_data, opts[LEFT]);
+  armors_sub_[RIGHT].subscribe(
+      this, "/detector/right/armors", rmw_qos_profile_sensor_data, opts[RIGHT]);
+
+  tf2_filter_[LEFT] = std::make_shared<tf2_filter>(
+      armors_sub_[LEFT], *tf2_buffer_[LEFT], target_frame_[LEFT], 10,
+      get_node_logging_interface(), get_node_clock_interface(),
+      std::chrono::duration<int>(1));
+
+  tf2_filter_[RIGHT] = std::make_shared<tf2_filter>(
+      armors_sub_[RIGHT], *tf2_buffer_[RIGHT], target_frame_[RIGHT], 10,
+      get_node_logging_interface(), get_node_clock_interface(),
+      std::chrono::duration<int>(1));
+
+  tf2_filter_[LEFT]->registerCallback(
+      [this](auto msg) { armorsCallback(std::const_pointer_cast<auto_aim_interfaces::msg::Armors>(msg), LEFT); });
+  tf2_filter_[RIGHT]->registerCallback(
+      [this](auto msg) { armorsCallback(std::const_pointer_cast<auto_aim_interfaces::msg::Armors>(msg), RIGHT); });
+}
+
+void ArmorTrackerNode::initPublishers()
+{
+  info_pub_[LEFT]  = create_publisher<auto_aim_interfaces::msg::TrackerInfo>(
+                       "/tracker/left/info", 10);
+  info_pub_[RIGHT] = create_publisher<auto_aim_interfaces::msg::TrackerInfo>(
+                       "/tracker/right/info", 10);
+
+  target_pub_[LEFT]  = create_publisher<auto_aim_interfaces::msg::Target>(
+                         "/tracker/left/target", rclcpp::SensorDataQoS());
+  target_pub_[RIGHT] = create_publisher<auto_aim_interfaces::msg::Target>(
+                         "/tracker/right/target", rclcpp::SensorDataQoS());
+}
+
+void ArmorTrackerNode::initMarkers()
+{
+  // 统一的模板 marker
+  visualization_msgs::msg::Marker sphere, arrow_v, arrow_w, cube;
+
+  sphere.ns = "position";
+  sphere.type = visualization_msgs::msg::Marker::SPHERE;
+  sphere.scale.x = sphere.scale.y = sphere.scale.z = 0.1;
+  sphere.color.a = 1.0; sphere.color.g = 1.0;
+
+  arrow_v.ns = "linear_v";
+  arrow_v.type = visualization_msgs::msg::Marker::ARROW;
+  arrow_v.scale.x = 0.03; arrow_v.scale.y = 0.05;
+  arrow_v.color.a = 1.0; arrow_v.color.r = arrow_v.color.g = 1.0;
+
+  arrow_w.ns = "angular_v";
+  arrow_w.type = visualization_msgs::msg::Marker::ARROW;
+  arrow_w.scale.x = 0.03; arrow_w.scale.y = 0.05;
+  arrow_w.color.a = 1.0; arrow_w.color.b = arrow_w.color.g = 1.0;
+
+  cube.ns = "armors";
+  cube.type = visualization_msgs::msg::Marker::CUBE;
+  cube.scale.x = 0.03; cube.scale.z = 0.125;
+  cube.color.a = 1.0; cube.color.r = 1.0;
+
+  for (auto de : {LEFT, RIGHT})
+  {
+    position_marker_[de] = sphere;
+    linear_v_marker_[de] = arrow_v;
+    angular_v_marker_[de] = arrow_w;
+    armor_marker_[de]    = cube;
+
+    marker_pub_[de] = create_publisher<visualization_msgs::msg::MarkerArray>(
+                        de == LEFT ? "/tracker/left/marker"
+                                   : "/tracker/right/marker",
+                        10);
+  }
+}
+
 
 void ArmorTrackerNode::armorsCallback(
   const auto_aim_interfaces::msg::Armors::SharedPtr armors_msg, DoubleEnd de)

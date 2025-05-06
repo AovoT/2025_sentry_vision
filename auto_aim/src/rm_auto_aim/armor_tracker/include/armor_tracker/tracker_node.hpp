@@ -45,6 +45,15 @@ public:
   explicit ArmorTrackerNode(const rclcpp::NodeOptions & options);
 
 private:
+  /* === 拆分出的初始化函数 === */
+  void declareParameters();
+  void initTrackers();
+  void initEkf(DoubleEnd de);
+  void initServices();
+  void initTf();
+  void initSubscribers();
+  void initPublishers();
+  void initMarkers();
   void armorsCallback(
     const auto_aim_interfaces::msg::Armors::SharedPtr armors_ptr, DoubleEnd de);
 
